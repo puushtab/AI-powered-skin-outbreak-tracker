@@ -1,4 +1,5 @@
 import datetime
+import os
 from transformers import LlamaForCausalLM, LlamaTokenizer
 import torch
 import json
@@ -71,7 +72,7 @@ def generate_skin_plan(
     return response
 
 
-def generate_skin_plan_from_json(input_json: dict) -> str:
+def generate_skin_plan_from_json(input_json: dict, models = None) -> str:
     """
     Wrapper: Parses a JSON dict, loads model, and generates the skin plan.
     """
@@ -85,7 +86,12 @@ def generate_skin_plan_from_json(input_json: dict) -> str:
 
     model_name = input_json.get("model_name", 'chaoyi-wu/PMC_LLAMA_7B')
     device_opt = input_json.get("device", None)
-    tokenizer, model, device = load_skin_model(model_name, device_opt)
+
+    if models is not None:
+        tokenizer, model, device = models
+    else:
+        # Load the model and tokenizer
+        tokenizer, model, device = load_skin_model(model_name, device_opt)
 
     return generate_skin_plan(
         tokenizer,
@@ -102,7 +108,7 @@ def generate_skin_plan_from_json(input_json: dict) -> str:
     )
 
 
-def test_generate_skin_plan():
+def test_generate_skin_plan(models=None):
     """
     Test using sample JSON, prints input and generated output.
     """
@@ -123,9 +129,14 @@ def test_generate_skin_plan():
     print("Input JSON:")
     print(json.dumps(sample_input, indent=2))
     print("\nGenerated Plan:")
-    plan = generate_skin_plan_from_json(sample_input)
+    plan = generate_skin_plan_from_json(sample_input, models)
     print(plan)
 
 
 if __name__ == "__main__":
-    test_generate_skin_plan()
+    token = os.getenv("HF_TOKEN")
+    tokenizer, model, device = load_skin_model(
+        model_name='chaoyi-wu/PMC_LLAMA_7B',
+        use_auth_token=token
+    )
+    test_generate_skin_plan(models=(tokenizer, model, device))
