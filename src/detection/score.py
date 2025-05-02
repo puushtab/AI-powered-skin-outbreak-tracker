@@ -1,0 +1,228 @@
+# scoring.py
+
+import os
+import yaml
+import argparse
+import torch
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+import traceback
+from scipy.ndimage import gaussian_filter # For spread heatmap
+from ultralytics import YOLO
+
+# --- Configuration Constants ---
+SEVERITY_SCORE_MAP = {
+    'Acne': 5,
+    'Pigmentation': 4,
+    'Blackheads': 2,
+    'Excess sebum': 2,
+    'Enlarged Pores': 1,
+}
+DEFAULT_SEVERITY_SCORE = 1
+
+# Heatmap settings
+HEATMAP_WEIGHTING = 'confidence' # 'severity' or 'confidence'
+HEATMAP_ALPHA = 0.5
+COLORMAP = cv2.COLORMAP_JET
+GAUSSIAN_SPREAD_SIGMA = 75 # Controls heatmap spread radius 
+SECONDARY_BLUR_KERNEL_SIZE = 0 # Optional secondary blur (0 to disable)
+
+# Score calculation weights
+AREA_WEIGHT = 0.5
+INTENSITY_WEIGHT = 0.7
+SCORE_RANGE = (0, 100)
+
+# --- Function Definitions ---
+
+def generate_spread_heatmap(image, detection_results, severity_map, default_s_i, weighting=HEATMAP_WEIGHTING, alpha=HEATMAP_ALPHA, spread_sigma=GAUSSIAN_SPREAD_SIGMA, secondary_blur_ksize=SECONDARY_BLUR_KERNEL_SIZE, colormap=COLORMAP):
+    """Generates a heatmap overlay where detection influence spreads via Gaussians."""
+    if not isinstance(image, np.ndarray) or image.ndim != 3: return image, np.zeros(image.shape[:2] if isinstance(image, np.ndarray) else (100, 100), dtype=np.float32)
+    if not detection_results or len(detection_results) == 0: return image, np.zeros(image.shape[:2], dtype=np.float32)
+
+    try:
+        result = detection_results[0]
+        boxes = result.boxes
+        names = getattr(result, 'names', {})
+        if not isinstance(names, dict): names = {}
+        img_h, img_w = image.shape[:2]
+    except (AttributeError, IndexError) as e: return image, np.zeros(image.shape[:2], dtype=np.float32)
+
+    heatmap_raw = np.zeros((img_h, img_w), dtype=np.float32)
+    num_detections = len(boxes) if boxes is not None else 0
+
+    if num_detections > 0:
+        points_data = []
+        for box in boxes:
+             try:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                cx = max(0, min(img_w - 1, int((x1 + x2) / 2)))
+                cy = max(0, min(img_h - 1, int((y1 + y2) / 2)))
+                point_weight = 1.0
+                if weighting == 'severity':
+                    class_id = int(box.cls[0])
+                    class_name = names.get(class_id, f"class_{class_id}")
+                    s_i = severity_map.get(class_name, default_s_i)
+                    point_weight = float(s_i)
+                elif weighting == 'confidence':
+                    point_weight = float(box.conf[0])
+                if point_weight > 0:
+                    points_data.append((cy, cx, point_weight))
+             except (AttributeError, IndexError, TypeError) as e: continue # Skip problematic box
+
+        if points_data:
+            for y, x, weight in points_data: heatmap_raw[y, x] += weight # Place peaks
+            if spread_sigma > 0: heatmap_spread = gaussian_filter(heatmap_raw, sigma=spread_sigma) # Spread
+            else: heatmap_spread = heatmap_raw
+            if secondary_blur_ksize and secondary_blur_ksize > 1 and secondary_blur_ksize % 2 == 1: heatmap_blurred = cv2.GaussianBlur(heatmap_spread, (secondary_blur_ksize, secondary_blur_ksize), 0)
+            else: heatmap_blurred = heatmap_spread
+
+            max_val = np.max(heatmap_blurred)
+            if max_val > 1e-6: heatmap_norm = cv2.normalize(heatmap_blurred, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) # Normalize
+            else: heatmap_norm = np.zeros(heatmap_blurred.shape, dtype=cv2.CV_8U)
+
+            heatmap_color = cv2.applyColorMap(heatmap_norm, colormap) # Apply color
+            image_uint8 = image.astype(np.uint8) if image.dtype != np.uint8 else image
+            heatmap_overlay = cv2.addWeighted(heatmap_color, alpha, image_uint8, 1 - alpha, 0) # Blend
+            return heatmap_overlay, heatmap_norm
+        else: return image, heatmap_raw # No valid points found
+    else: return image, heatmap_raw # No detections found
+
+
+def calculate_facial_severity_v2(detection_results, image_shape, severity_map, default_s_i, score_range=SCORE_RANGE, area_weight=AREA_WEIGHT, intensity_weight=INTENSITY_WEIGHT):
+    """Calculates a facial severity score based on affected area and intensity."""
+    if not detection_results or len(detection_results) == 0: return score_range[0], 0.0, 0.0, 0
+    if not isinstance(image_shape, tuple) or len(image_shape) < 2: return score_range[0], 0.0, 0.0, 0
+
+    try:
+        result = detection_results[0]
+        boxes = result.boxes
+        names = getattr(result, 'names', {});
+        if not isinstance(names, dict): names = {}
+        img_h, img_w = image_shape[:2]; total_image_area = float(img_h * img_w)
+    except (AttributeError, IndexError) as e: return score_range[0], 0.0, 0.0, 0
+
+    N = len(boxes) if boxes is not None else 0
+    if N == 0 or total_image_area <= 0: return score_range[0], 0.0, 0.0, 0
+
+    total_lesion_area = 0.0; sum_severity_points = 0.0; valid_detections = 0
+    for box in boxes:
+         try:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy(); w = x2 - x1; h = y2 - y1
+            if w <=0 or h <= 0: continue # Skip zero-area boxes
+            a_i = float(w * h); total_lesion_area += a_i
+            class_id = int(box.cls[0]); class_name = names.get(class_id, f"class_{class_id}")
+            s_i = severity_map.get(class_name, default_s_i); sum_severity_points += s_i
+            valid_detections += 1
+         except (AttributeError, IndexError, TypeError) as e: continue # Skip problematic box
+
+    N = valid_detections
+    if N == 0: return score_range[0], 0.0, 0.0, 0 # No valid boxes processed
+
+    percentage_affected_area = (total_lesion_area / total_image_area) * 100.0
+    average_intensity = sum_severity_points / N if N > 0 else 0.0
+
+    max_expected_area_percent = 50.0 # Scaling cap
+    scaled_area_component = min(1.0, percentage_affected_area / max_expected_area_percent) * (score_range[1] - score_range[0])
+    max_possible_avg_intensity = max(severity_map.values()) if severity_map else default_s_i
+    if max_possible_avg_intensity <= 0: max_possible_avg_intensity = 5.0 # Fallback
+    scaled_intensity_component = min(1.0, average_intensity / max_possible_avg_intensity) * (score_range[1] - score_range[0])
+
+    final_score = (area_weight * scaled_area_component) + (intensity_weight * scaled_intensity_component) + score_range[0]
+    final_score = max(score_range[0], min(score_range[1], final_score)) # Clamp
+    return final_score, percentage_affected_area, average_intensity, N
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Score an image for skin anomalies using a YOLOv8 model and generate a heatmap.")
+    parser.add_argument('--model-path', type=str, required=True, help='Path to the trained YOLOv8 model (.pt file).')
+    parser.add_argument('--image-path', type=str, required=True, help='Path to the input image file.')
+    parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold for object detection.')
+    parser.add_argument('--output-path', type=str, default=None, help='Optional path to save the output image (original + heatmap overlay). If None, only displays.')
+    parser.add_argument('--no-display', action='store_true', help='Do not display the output image using Matplotlib.')
+    parser.add_argument('--sigma', type=float, default=GAUSSIAN_SPREAD_SIGMA, help=f'Sigma value for Gaussian spread heatmap (default: {GAUSSIAN_SPREAD_SIGMA}). Controls spread radius.')
+    parser.add_argument('--alpha', type=float, default=HEATMAP_ALPHA, help=f'Alpha transparency for heatmap overlay (default: {HEATMAP_ALPHA}).')
+
+
+    args = parser.parse_args()
+
+    if not os.path.exists(args.model_path): print(f"ERROR: Model weights not found at: {args.model_path}"); raise SystemExit(1)
+    if not os.path.exists(args.image_path): print(f"ERROR: Input image not found at: {args.image_path}"); raise SystemExit(1)
+
+    try:
+        print(f"--- Loading Model: {args.model_path} ---")
+        model = YOLO(args.model_path)
+        print(f"Model loaded. Classes: {model.names}")
+
+        print(f"\n--- Reading Image: {args.image_path} ---")
+        image_bgr = cv2.imread(args.image_path)
+        if image_bgr is None: raise IOError(f"Could not read image file: {args.image_path}")
+        original_shape = image_bgr.shape
+        print(f"Image shape: {original_shape}")
+
+        print(f"\n--- Running Prediction (Confidence: {args.conf}) ---")
+        predict_results = model.predict(source=args.image_path, conf=args.conf, save=False)
+
+        print("\n--- Calculating Severity Score ---")
+        severity_score, perc_area, avg_intensity, num_lesions = calculate_facial_severity_v2(
+            predict_results, original_shape, SEVERITY_SCORE_MAP, DEFAULT_SEVERITY_SCORE,
+            score_range=SCORE_RANGE, area_weight=AREA_WEIGHT, intensity_weight=INTENSITY_WEIGHT
+        )
+        print(f"-----------------------------------")
+        print(f" Facial Severity Score: {severity_score:.2f} / {SCORE_RANGE[1]}")
+        print(f" Affected Area (%):     {perc_area:.2f}%")
+        print(f" Average Intensity (s_i): {avg_intensity:.2f}")
+        print(f" Number of Lesions (N): {num_lesions}")
+        print(f"-----------------------------------")
+
+        print(f"\n--- Generating Heatmap (Sigma: {args.sigma}, Alpha: {args.alpha}) ---")
+        image_with_heatmap, _ = generate_spread_heatmap(
+            image_bgr.copy(), predict_results, SEVERITY_SCORE_MAP, DEFAULT_SEVERITY_SCORE,
+            weighting=HEATMAP_WEIGHTING, alpha=args.alpha, # Use args.alpha
+            spread_sigma=args.sigma, # Use args.sigma
+            secondary_blur_ksize=SECONDARY_BLUR_KERNEL_SIZE, colormap=COLORMAP
+        )
+
+        output_filename = None
+        if args.output_path:
+            try:
+                output_dir = os.path.dirname(args.output_path)
+                if output_dir and not os.path.exists(output_dir): os.makedirs(output_dir, exist_ok=True)
+                success = cv2.imwrite(args.output_path, image_with_heatmap)
+                if success: print(f"Output image saved to: {args.output_path}"); output_filename = os.path.basename(args.output_path)
+                else: print(f"ERROR: Failed to save output image to {args.output_path}")
+            except Exception as e: print(f"ERROR saving output image: {e}")
+
+        if not args.no_display:
+            print("\n--- Displaying Results ---")
+            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            heatmap_overlay_rgb = cv2.cvtColor(image_with_heatmap, cv2.COLOR_BGR2RGB)
+            fig, axes = plt.subplots(1, 2, figsize=(16, 8)); fig.suptitle(f"Analysis for: {os.path.basename(args.image_path)}", fontsize=16)
+            axes[0].imshow(image_rgb); axes[0].set_title('Original Image'); axes[0].axis('off')
+            title_str = f'Severity Heatmap (Score: {severity_score:.1f}, Sigma: {args.sigma})';
+            if output_filename: title_str += f'\nSaved as: {output_filename}'
+            axes[1].imshow(heatmap_overlay_rgb); axes[1].set_title(title_str); axes[1].axis('off')
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95]); plt.show()
+
+        if predict_results and len(predict_results) > 0 and hasattr(predict_results[0], 'boxes') and len(predict_results[0].boxes) > 0:
+            print(f"\n--- Detected Objects ({len(predict_results[0].boxes)}) ---")
+            names_map = getattr(model, 'names', {});
+            if not isinstance(names_map, dict): names_map = {}
+            for box in predict_results[0].boxes:
+                try:
+                    class_id = int(box.cls[0]); confidence = float(box.conf[0])
+                    class_name = names_map.get(class_id, f"class_{class_id}")
+                    print(f"  - Class: {class_name} ({class_id}), Confidence: {confidence:.3f}")
+                except (AttributeError, IndexError, TypeError) as e: print(f"  - Error accessing details for one box: {e}")
+        elif predict_results and len(predict_results) > 0: print("\nNo objects detected with confidence above the threshold.")
+
+        print("\n--- Scoring Script Finished ---")
+
+    except (FileNotFoundError, IOError) as e: print(f"ERROR: {e}"); raise SystemExit(1)
+    except ImportError as e: print(f"ERROR: Missing library. {e}. Please install required libraries."); raise SystemExit(1)
+    except Exception as e: print(f"\nAn unexpected error occurred: {e}"); traceback.print_exc(); raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
