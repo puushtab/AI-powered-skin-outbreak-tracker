@@ -9,14 +9,14 @@ import traceback
 from scipy.ndimage import gaussian_filter
 from ultralytics import YOLO
 
-# --- Configuration Constants --- <<< --- EDIT THESE VALUES --- >>>
+
 MODEL_WEIGHTS_PATH = r'best.pt'     
 TEST_IMAGE_PATH = r'final_test.jpg' 
 CONFIDENCE_THRESHOLD = 0.3                     
 OUTPUT_PATH = r'output.jpg' 
 NO_DISPLAY = False                               
 
-# Severity mapping - Adjust based on your model's classes and desired weighting
+
 SEVERITY_SCORE_MAP = {
     'Acne': 5,
     'Pigmentation': 4,
