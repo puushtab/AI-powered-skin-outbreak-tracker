@@ -1,39 +1,9 @@
 import datetime
-import os
 import json
-import torch
-from transformers import LlamaForCausalLM, LlamaTokenizer
-
-
-def load_skin_model(
-    model_name: str = 'chaoyi-wu/PMC_LLAMA_7B',
-    device: str = None,
-    use_auth_token: str = None,
-):
-    """
-    Loads and returns the tokenizer, model, and device for the skin treatment planner.
-    """
-    if device is None:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    tokenizer = LlamaTokenizer.from_pretrained(
-        model_name,
-        use_auth_token=use_auth_token
-    )
-    model = LlamaForCausalLM.from_pretrained(
-        model_name,
-        use_auth_token=use_auth_token
-    )
-    model.to(device)
-    model.eval()
-
-    return tokenizer, model, device
-
+import os
+import ollama
 
 def generate_skin_plan(
-    tokenizer,
-    model,
-    device,
     disease: str,
     severity_score: int,
     sex: str,
@@ -42,9 +12,10 @@ def generate_skin_plan(
     previous_treatment: str,
     diet: str,
     actual_date: str,
+    model_name: str = 'medllama2'
 ) -> str:
     """
-    Generates a treatment plan and lifestyle advice given a pretrained model setup.
+    Generates a treatment plan and lifestyle advice using Ollama's model.
 
     Returns a JSON-formatted string with keys:
     - treatment_plan: list of {date: str, treatment: str}
@@ -66,22 +37,24 @@ def generate_skin_plan(
         f"Respond in JSON format with keys 'treatment_plan' and 'lifestyle_advice'."
     )
 
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_length=512,
-            temperature=0.7,
-            top_p=0.9,
-            num_return_sequences=1,
-        )
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response
+    response = ollama.chat(
+        model=model_name,
+        messages=[
+            {'role': 'user', 'content': prompt}
+        ],
+        options={
+            'temperature': 0.7,
+            'top_p': 0.9,
+            'max_tokens': 512
+        }
+    )
+    
+    return response['message']['content']
 
 
-def generate_skin_plan_from_json(input_json: dict, models=None) -> str:
+def generate_skin_plan_from_json(input_json: dict) -> str:
     """
-    Wrapper: Parses a JSON dict, loads model, and generates the skin plan.
+    Wrapper: Parses a JSON dict and generates the skin plan using Ollama.
     """
     required_keys = [
         "disease", "severity_score", "sex", "age",
@@ -91,23 +64,9 @@ def generate_skin_plan_from_json(input_json: dict, models=None) -> str:
     if missing:
         raise ValueError(f"Missing keys in input JSON: {missing}")
 
-    model_name = input_json.get("model_name", 'chaoyi-wu/PMC_LLAMA_7B')
-    device_opt = input_json.get("device", None)
-    use_auth_token = input_json.get("use_auth_token") or os.getenv("HF_TOKEN")
-
-    if models is not None:
-        tokenizer, model, device = models
-    else:
-        tokenizer, model, device = load_skin_model(
-            model_name,
-            device_opt,
-            use_auth_token
-        )
+    model_name = input_json.get("model_name", 'medllama2')
 
     return generate_skin_plan(
-        tokenizer,
-        model,
-        device,
         disease=input_json["disease"],
         severity_score=int(input_json["severity_score"]),
         sex=input_json["sex"],
@@ -116,10 +75,11 @@ def generate_skin_plan_from_json(input_json: dict, models=None) -> str:
         previous_treatment=input_json.get("previous_treatment", ""),
         diet=input_json.get("diet", ""),
         actual_date=input_json["actual_date"],
+        model_name=model_name
     )
 
 
-def test_generate_skin_plan(models=None):
+def test_generate_skin_plan():
     """
     Test using sample JSON, prints input and generated output.
     """
@@ -132,22 +92,15 @@ def test_generate_skin_plan(models=None):
         "previous_treatment": "topical retinoids",
         "diet": "high glycemic load diet",
         "actual_date": datetime.date.today().isoformat(),
-        "model_name": 'chaoyi-wu/PMC_LLAMA_7B',
-        "device": None,
-        "use_auth_token": os.getenv("HF_TOKEN")
+        "model_name": "medllama2"
     }
 
     print("Input JSON:")
     print(json.dumps(sample_input, indent=2))
     print("\nGenerated Plan:")
-    plan = generate_skin_plan_from_json(sample_input, models)
+    plan = generate_skin_plan_from_json(sample_input)
     print(plan)
 
 
 if __name__ == "__main__":
-    token = os.getenv("HF_TOKEN")
-    tokenizer, model, device = load_skin_model(
-        model_name='chaoyi-wu/PMC_LLAMA_7B',
-        use_auth_token=token
-    )
-    test_generate_skin_plan(models=(tokenizer, model, device))
+    test_generate_skin_plan()
