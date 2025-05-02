@@ -2,29 +2,32 @@ import datetime
 import os
 import json
 import torch
-from transformers import LlamaForCausalLM, LlamaTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 def load_skin_model(
-    model_name: str = 'chaoyi-wu/PMC_LLAMA_7B',
-    device: str = None,
+    model_name: str = 'TinyLlama/TinyLlama-1.1B-Chat-v1.0',
     use_auth_token: str = None,
 ):
     """
-    Loads and returns the tokenizer, model, and device for the skin treatment planner.
+    Loads and returns the tokenizer, model, and device for the skin treatment planner,
+    using TinyLlama-1.1B-Chat-v1.0 in bfloat16 precision.
     """
-    if device is None:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # automatically pick GPU if available
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    tokenizer = LlamaTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
         model_name,
-        use_auth_token=use_auth_token
+        use_auth_token=use_auth_token,
     )
-    model = LlamaForCausalLM.from_pretrained(
+
+    # load in bfloat16 and let Accelerate place weights
+    model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        use_auth_token=use_auth_token
+        use_auth_token=use_auth_token,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
     )
-    model.to(device)
     model.eval()
 
     return tokenizer, model, device
@@ -45,10 +48,9 @@ def generate_skin_plan(
 ) -> str:
     """
     Generates a treatment plan and lifestyle advice given a pretrained model setup.
-
     Returns a JSON-formatted string with keys:
-    - treatment_plan: list of {date: str, treatment: str}
-    - lifestyle_advice: list of advice strings
+     - treatment_plan: list of {date: str, treatment: str}
+     - lifestyle_advice: list of advice strings
     """
     prompt = (
         f"You are a knowledgeable medical assistant specializing in dermatology. Given the patient data below, provide:\n"
@@ -70,39 +72,34 @@ def generate_skin_plan(
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
-            max_length=512,
+            max_new_tokens=512,
             temperature=0.7,
             top_p=0.9,
             num_return_sequences=1,
         )
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response
+
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 
 def generate_skin_plan_from_json(input_json: dict, models=None) -> str:
     """
     Wrapper: Parses a JSON dict, loads model, and generates the skin plan.
     """
-    required_keys = [
+    required = [
         "disease", "severity_score", "sex", "age",
         "weight", "previous_treatment", "diet", "actual_date"
     ]
-    missing = [k for k in required_keys if k not in input_json]
+    missing = [k for k in required if k not in input_json]
     if missing:
         raise ValueError(f"Missing keys in input JSON: {missing}")
 
-    model_name = input_json.get("model_name", 'chaoyi-wu/PMC_LLAMA_7B')
-    device_opt = input_json.get("device", None)
-    use_auth_token = input_json.get("use_auth_token") or os.getenv("HF_TOKEN")
+    model_name = input_json.get("model_name", 'TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+    use_auth = input_json.get("use_auth_token") or os.getenv("HF_TOKEN")
 
     if models is not None:
         tokenizer, model, device = models
     else:
-        tokenizer, model, device = load_skin_model(
-            model_name,
-            device_opt,
-            use_auth_token
-        )
+        tokenizer, model, device = load_skin_model(model_name, use_auth)
 
     return generate_skin_plan(
         tokenizer,
@@ -123,7 +120,7 @@ def test_generate_skin_plan(models=None):
     """
     Test using sample JSON, prints input and generated output.
     """
-    sample_input = {
+    sample = {
         "disease": "acne",
         "severity_score": 75,
         "sex": "female",
@@ -132,22 +129,20 @@ def test_generate_skin_plan(models=None):
         "previous_treatment": "topical retinoids",
         "diet": "high glycemic load diet",
         "actual_date": datetime.date.today().isoformat(),
-        "model_name": 'chaoyi-wu/PMC_LLAMA_7B',
-        "device": None,
+        "model_name": 'TinyLlama/TinyLlama-1.1B-Chat-v1.0',
         "use_auth_token": os.getenv("HF_TOKEN")
     }
 
     print("Input JSON:")
-    print(json.dumps(sample_input, indent=2))
+    print(json.dumps(sample, indent=2))
     print("\nGenerated Plan:")
-    plan = generate_skin_plan_from_json(sample_input, models)
+    plan = generate_skin_plan_from_json(sample, models)
     print(plan)
 
 
 if __name__ == "__main__":
-    token = os.getenv("HF_TOKEN")
-    tokenizer, model, device = load_skin_model(
-        model_name='chaoyi-wu/PMC_LLAMA_7B',
-        use_auth_token=token
+    tok, mdl, dev = load_skin_model(
+        model_name='TinyLlama/TinyLlama-1.1B-Chat-v1.0',
+        use_auth_token=os.getenv("HF_TOKEN")
     )
-    test_generate_skin_plan(models=(tokenizer, model, device))
+    test_generate_skin_plan(models=(tok, mdl, dev))
