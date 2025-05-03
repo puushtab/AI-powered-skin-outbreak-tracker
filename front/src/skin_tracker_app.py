@@ -204,7 +204,7 @@ def save_lifestyle_data(lifestyle_data: dict) -> bool:
             return False
     return False
 
-def get_skin_plan(user_id: str, model_name: str = "medllama2") -> dict:
+def get_skin_plan(user_id: str, model_name: str = "medllama2:7b-q3_K_M") -> dict:
     """Get skin plan from the backend"""
     try:
         response = requests.post(
@@ -438,7 +438,7 @@ elif page == "Dashboard":
 
     # Generate Skin Plan
     st.subheader("Generate Skin Plan")
-    model_name = st.selectbox("Select Model", ["medllama2", "llama2"])
+    model_name = st.selectbox("Select Model", ["medllama2:7b-q3_K_M", "llama2"])
     if st.button("Generate Plan"):
         plan = get_skin_plan(USER_ID, model_name)
         if plan and plan.get("success"):
@@ -446,8 +446,18 @@ elif page == "Dashboard":
             
             # Display Treatment Plan
             st.subheader("Treatment Plan")
-            for treatment in plan_data.get("treatment_plan", []):
-                st.write(f"**{treatment['date']}**: {treatment['treatment']}")
+            for day in plan_data.get("treatment_plan", []):
+                with st.expander(f"📅 {day['date']}"):
+                    st.write("**Morning Routine**")
+                    for step in day.get("morning_routine", []):
+                        st.write(f"☀️ {step}")
+                    
+                    st.write("**Evening Routine**")
+                    for step in day.get("evening_routine", []):
+                        st.write(f"🌙 {step}")
+                    
+                    if day.get("notes"):
+                        st.info(day["notes"])
             
             # Display Recommendations
             st.subheader("Recommendations")
