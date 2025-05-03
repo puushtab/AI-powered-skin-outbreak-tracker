@@ -276,3 +276,13 @@ async def detect_skin_conditions(file: UploadFile = File(..., description="Image
     )
 
     return response_data
+
+if __name__ == "__ma"
+"in__":
+    import uvicorn
+    uvicorn.run(
+        "api:app",     # module path to your FastAPI app
+        host="0.0.0.0",         # listen on all interfaces
+        port=8000,              # or any port you prefer
+        reload=True            # auto-reload on code changes
+    )
