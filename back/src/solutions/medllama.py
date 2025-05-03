@@ -5,34 +5,6 @@ import ollama
 from typing import Dict, Optional
 from datetime import datetime, date
 import requests
-import psutil
-import gc
-
-def limit_memory_usage(max_memory_percent=70):
-    """
-    Limit memory usage by forcing garbage collection and monitoring system memory.
-    
-    Args:
-        max_memory_percent: Maximum allowed memory usage percentage
-    """
-    # Force garbage collection
-    gc.collect()
-    
-    # Get current memory usage
-    process = psutil.Process(os.getpid())
-    memory_info = process.memory_info()
-    memory_percent = process.memory_percent()
-    
-    # If memory usage is too high, force garbage collection and wait
-    if memory_percent > max_memory_percent:
-        gc.collect()
-        import time
-        time.sleep(2)  # Increased wait time from 1 to 2 seconds
-        
-        # If still high, try to free more memory
-        if process.memory_percent() > max_memory_percent:
-            gc.collect()
-            time.sleep(2)
 
 def calculate_age(dob: str) -> int:
     """Calculate age from date of birth string (YYYY-MM-DD format)"""
@@ -40,23 +12,6 @@ def calculate_age(dob: str) -> int:
     today = date.today()
     age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
     return age
-
-def check_system_memory():
-    """
-    Check if system has enough memory to run the model.
-    Returns True if enough memory is available, False otherwise.
-    """
-    # Get system memory info
-    memory = psutil.virtual_memory()
-    available_gb = memory.available / (1024 * 1024 * 1024)  # Convert to GB
-    
-    # We need at least 11.3 GB for the model
-    required_gb = 11.3
-    
-    if available_gb < required_gb:
-        print(f"Warning: Only {available_gb:.1f}GB available, but {required_gb}GB required")
-        return False
-    return True
 
 def generate_skin_plan(
     user_profile: Dict,
@@ -86,13 +41,6 @@ def generate_skin_plan(
             - constitution: list of str
             - product_type: str
     """
-    # Check system memory before proceeding
-    if not check_system_memory():
-        raise MemoryError("Insufficient system memory to run the model")
-    
-    # Monitor memory usage before processing
-    limit_memory_usage()
-    
     # Extract and process user profile data
     age = calculate_age(user_profile.get("dob", ""))
     gender = user_profile.get("gender", "")
@@ -113,12 +61,10 @@ def generate_skin_plan(
     prompt = (
         f"You are a knowledgeable medical assistant specializing in dermatology. Given the patient data below, provide a JSON response with the following structure:\n"
         f"{{\n"
-        f"  \"treatment_plan\": {{\n"
+        f"  \"treatment_plan\": [{{\n"
         f"    \"date\": \"YYYY-MM-DD\",\n"
-        f"    \"morning_routine\": [\"step 1\", \"step 2\"],\n"
-        f"    \"evening_routine\": [\"step 1\", \"step 2\"],\n"
-        f"    \"notes\": \"Additional instructions or warnings\"\n"
-        f"  }},\n"
+        f"    \"treatment\": \"treatment description\"\n"
+        f"  }}],\n"
         f"  \"lifestyle_advice\": [\"advice 1\", \"advice 2\"],\n"
         f"  \"diet_recommendations\": [\"diet rec 1\", \"diet rec 2\"],\n"
         f"  \"sleep_recommendations\": [\"sleep rec 1\", \"sleep rec 2\"],\n"
@@ -148,61 +94,138 @@ def generate_skin_plan(
         f"- Stress Level (1-10): {stress}\n"
         f"- Current Products Used: {products_used}\n"
         f"- Sunlight Exposure (hours/day): {sunlight_exposure}\n\n"
-        f"Provide a single day's treatment plan with specific morning and evening routines. "
-        f"Make sure to include any warnings or special instructions in the notes field. "
-        f"Provide ONLY a valid JSON response with NO additional text or explanation."
+        f"IMPORTANT: Your response must be a valid JSON object. Do not include any text before or after the JSON. "
+        f"Make sure all strings are properly quoted with double quotes. "
+        f"Arrays must be enclosed in square brackets. "
+        f"Objects must be enclosed in curly braces. "
+        f"All keys must be strings enclosed in double quotes. "
+        f"Provide ONLY the JSON response with NO additional text or explanation."
     )
 
     try:
         response = ollama.chat(
             model=model_name,
             messages=[
-                {'role': 'system', 'content': 'You are a dermatology expert. Always respond with valid JSON only.'},
+                {'role': 'system', 'content': 'You are a dermatology expert. You must respond with valid JSON only. Do not include any text before or after the JSON.'},
                 {'role': 'user', 'content': prompt}
             ],
             options={
                 'temperature': 0.7,
                 'top_p': 0.9,
                 'max_tokens': 1024,
-                'num_ctx': 2048,
-                'num_thread': 2,
-                'num_batch': 1,
-                'num_gpu': 0,
-                'num_keep': 0,
-                'num_predict': 1024,
-                'repeat_penalty': 1.0,
-                'stop': [],
-                'num_parallel': 1,
-                'num_ctx_keep': 0,
-                'num_ctx_keep_ratio': 0.0
+                'num_ctx': 2048
             }
         )
         
         # Get the response content
         content = response['message']['content']
+        print("\n=== DEBUG: Raw Response ===")
+        print(content)
+        print("=== End Raw Response ===\n")
         
-        # Try to parse it as JSON to validate
+        # Clean the response to ensure it's valid JSON
+        content = content.strip()
+        print("\n=== DEBUG: After strip ===")
+        print(content)
+        print("=== End After strip ===\n")
+        
+        # Split the content into individual JSON objects
+        json_objects = []
+        current_object = ""
+        brace_count = 0
+        for char in content:
+            current_object += char
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    try:
+                        json_objects.append(json.loads(current_object))
+                        current_object = ""
+                    except json.JSONDecodeError:
+                        current_object = ""
+        
+        # Combine the JSON objects into a single response
+        combined_response = {
+            "treatment_plan": [],
+            "lifestyle_advice": [],
+            "diet_recommendations": [],
+            "sleep_recommendations": [],
+            "environmental_factors": [],
+            "product_recommendations": []
+        }
+        
+        for obj in json_objects:
+            if isinstance(obj, list):
+                for item in obj:
+                    if isinstance(item, dict):
+                        if "date" in item and "treatment" in item:
+                            combined_response["treatment_plan"].append(item)
+                        elif "skin_condition" in item:
+                            combined_response["product_recommendations"].append(item)
+            elif isinstance(obj, dict):
+                for key in obj:
+                    if key in combined_response:
+                        if isinstance(obj[key], list):
+                            combined_response[key].extend(obj[key])
+                        else:
+                            combined_response[key].append(obj[key])
+        
+        # Convert the combined response to JSON string
+        content = json.dumps(combined_response)
+        print("\n=== DEBUG: Combined JSON ===")
+        print(content)
+        print("=== End Combined JSON ===\n")
+        
+        # Validate the final response structure
         try:
-            json.loads(content)
-            return content
-        except json.JSONDecodeError:
-            # If parsing fails, create a default response
-            today = datetime.now()
+            parsed_response = json.loads(content)
+            required_fields = [
+                "treatment_plan",
+                "lifestyle_advice",
+                "diet_recommendations",
+                "sleep_recommendations",
+                "environmental_factors",
+                "product_recommendations"
+            ]
+            
+            # Ensure all required fields are present and are lists
+            for field in required_fields:
+                if field not in parsed_response:
+                    parsed_response[field] = []
+                elif not isinstance(parsed_response[field], list):
+                    parsed_response[field] = [parsed_response[field]]
+            
+            # Ensure treatment_plan items have the correct structure
+            for treatment in parsed_response["treatment_plan"]:
+                if not isinstance(treatment, dict):
+                    continue
+                if "date" not in treatment:
+                    treatment["date"] = datetime.now().strftime("%Y-%m-%d")
+                if "treatment" not in treatment:
+                    treatment["treatment"] = "Basic skincare routine"
+            
+            # Ensure product_recommendations items have the correct structure
+            for product in parsed_response["product_recommendations"]:
+                if not isinstance(product, dict):
+                    continue
+                if "product_type" not in product:
+                    product["product_type"] = "cleanser"
+            
+            return parsed_response  # Return Python object instead of JSON string
+        except Exception as e:
+            print(f"\n=== DEBUG: Response validation error ===")
+            print(f"Error: {str(e)}")
+            print("=== End Response validation error ===\n")
+            # Return default response if validation fails
             default_response = {
-                "treatment_plan": {
-                    "date": today.strftime("%Y-%m-%d"),
-                    "morning_routine": [
-                        "Gentle cleanser",
-                        "Moisturizer",
-                        "Sunscreen SPF 30+"
-                    ],
-                    "evening_routine": [
-                        "Gentle cleanser",
-                        "Moisturizer",
-                        "Prescribed treatment (if any)"
-                    ],
-                    "notes": "Be consistent with the routine and avoid touching your face"
-                },
+                "treatment_plan": [
+                    {
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "treatment": "Basic skincare routine: gentle cleanser, moisturizer, and sunscreen"
+                    }
+                ],
                 "lifestyle_advice": [
                     "Stay hydrated",
                     "Get adequate sleep",
@@ -232,26 +255,22 @@ def generate_skin_plan(
                     }
                 ]
             }
-            return json.dumps(default_response, indent=2)
-            
+            return default_response  # Return Python object instead of JSON string
     except Exception as e:
+        print("\n=== DEBUG: General Exception ===")
+        print(f"Exception type: {type(e).__name__}")
+        print(f"Exception message: {str(e)}")
+        print("=== End General Exception ===\n")
+        print("DEFAULT RESPONSE !!")
+
         # If there's any error with the model, return the default response
-        today = datetime.now()
         default_response = {
-            "treatment_plan": {
-                "date": today.strftime("%Y-%m-%d"),
-                "morning_routine": [
-                    "Gentle cleanser",
-                    "Moisturizer",
-                    "Sunscreen SPF 30+"
-                ],
-                "evening_routine": [
-                    "Gentle cleanser",
-                    "Moisturizer",
-                    "Prescribed treatment (if any)"
-                ],
-                "notes": "Be consistent with the routine and avoid touching your face"
-            },
+            "treatment_plan": [
+                {
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "treatment": "Basic skincare routine: gentle cleanser, moisturizer, and sunscreen"
+                }
+            ],
             "lifestyle_advice": [
                 "Stay hydrated",
                 "Get adequate sleep",
@@ -281,7 +300,7 @@ def generate_skin_plan(
                 }
             ]
         }
-        return json.dumps(default_response, indent=2)
+        return default_response  # Return Python object instead of JSON string
 
 def generate_skin_plan_from_json(input_json: dict) -> str:
     """
@@ -340,7 +359,8 @@ def test_generate_skin_plan():
     print(json.dumps(sample_input, indent=2))
     print("\nGenerated Plan:")
     plan = generate_skin_plan_from_json(sample_input)
-    print(plan)
+    print(json.dumps(plan, indent=2))  # Convert to JSON string for printing
+    return plan  # Return Python object
 
 def build_search_query(product_recommendation: Dict) -> str:
     """
@@ -387,19 +407,25 @@ def search_products_google(query, api_key, num_results=5):
     return products
 
 if __name__ == "__main__":
-    test_generate_skin_plan()
+    plan = test_generate_skin_plan()
+    # Extract product recommendations from the plan
+    product_recommendations = plan.get("product_recommendations", [])
+    if product_recommendations:
+        example_product_rec = product_recommendations[0]
+    else:
+        print("No product recommendations found in plan")
+        example_product_rec = {
+            "product_type": "cleanser",
+            "skin_condition": "acne",
+            "skin_type": "combination",
+            "price_range": "$20",
+            "constitution": ["sensitive"],
+            "characteristics": ["gentle", "non-comedogenic"]
+        }
 
-        # Test the product search
+    # Test the product search
     print("\n--- Testing search_products_google ---")
     # Example: build a query for a cleanser for acne-prone combination skin
-    example_product_rec = {
-        "skin_condition": "acne",
-        "skin_type": "combination",
-        "characteristics": ["non-comedogenic", "fragrance-free"],
-        "price_range": "mid-range",
-        "constitution": ["oil-free", "alcohol-free"],
-        "product_type": "cleanser"
-    }
     search_query = build_search_query(example_product_rec)
     print(f"Search query: {search_query}")
 

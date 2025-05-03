@@ -406,7 +406,7 @@ elif page == "Dashboard":
         with col_img:
             st.image(mascot_images["encouragement"], width=50)
     st.subheader("Generate Skin Plan")
-    model_name = st.selectbox("Select Model", ["medllama2:7b-q3_K_M", "llama2"])
+    model_name = st.selectbox("Select Model", ["medllama2", "llama2"])
     if st.button("Generate Plan"):
         plan = get_skin_plan(USER_ID, model_name)
         if plan and plan.get("success"):
