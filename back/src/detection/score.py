@@ -12,7 +12,7 @@ from ultralytics import YOLO
 
 MODEL_WEIGHTS_PATH = r'best.pt'     
 TEST_IMAGE_PATH = r'final_test.jpg' 
-CONFIDENCE_THRESHOLD = 0.2                    
+CONFIDENCE_THRESHOLD = 0.35                    
 OUTPUT_PATH = r'output.jpg' 
 NO_DISPLAY = False                               
 
