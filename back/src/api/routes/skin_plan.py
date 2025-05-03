@@ -1,24 +1,18 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Optional
 from src.api.core.exceptions import AnalysisError
-from src.solutions.medllama import generate_skin_plan_from_json, build_search_query, search_products_google
-from src.db.user_profile_db import get_profile_from_db
-from src.db.create_db import get_latest_timeseries_data
-import json
-from datetime import datetime
-from pathlib import Path
-import os
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/skin-plan", tags=["skin-plan"])
 
 @router.post("/generate")
-async def generate_skin_plan(user_id: str, model_name: Optional[str] = "llama2"):
+async def generate_skin_plan(user_id: str, model_name: Optional[str] = "medllama2"):
     """
     Generate a personalized skin treatment plan based on user profile and timeseries data.
     
     Args:
         user_id: The ID of the user to generate the plan for
-        model_name: Optional name of the Ollama model to use (defaults to llama2)
+        model_name: Optional name of the Ollama model to use (defaults to medllama2)
     
     Returns:
         JSON response containing the generated skin plan with:
@@ -30,49 +24,96 @@ async def generate_skin_plan(user_id: str, model_name: Optional[str] = "llama2")
         - product_recommendations: list of recommended products with details
     """
     try:
-        # Set up database paths
-        db_dir = Path(__file__).parent.parent.parent / "db"
-        timeseries_db_path = str(db_dir / "acne_tracker.db")
-        profiles_db_path = str(db_dir / "user_profiles.db")
-        
-        # Get user profile from database
-        user_profile = get_profile_from_db(user_id, db_path=profiles_db_path)
-        if not user_profile:
-            raise HTTPException(status_code=404, detail=f"User profile not found for ID: {user_id}")
-        
-        # Get latest timeseries data
-        timeseries_data = get_latest_timeseries_data(user_id, db_path=timeseries_db_path)
-        
-        # Prepare input data for the model
-        input_data = {
-            "user_profile": user_profile,
-            "timeseries_data": timeseries_data,
-            "model_name": model_name
+        # Hardcoded response
+        today = datetime.now()
+        plan_data = {
+            "treatment_plan": [
+                {
+                    "date": today.strftime("%Y-%m-%d"),
+                    "treatment": "Morning: Gentle cleanser, Vitamin C serum, Moisturizer with SPF 30\nEvening: Double cleanse, Retinol serum, Hydrating moisturizer"
+                },
+                {
+                    "date": (today + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "treatment": "Morning: Gentle cleanser, Niacinamide serum, Moisturizer with SPF 30\nEvening: Double cleanse, Hyaluronic acid serum, Hydrating moisturizer"
+                },
+                {
+                    "date": (today + timedelta(days=2)).strftime("%Y-%m-%d"),
+                    "treatment": "Morning: Gentle cleanser, Vitamin C serum, Moisturizer with SPF 30\nEvening: Double cleanse, Retinol serum, Hydrating moisturizer"
+                }
+            ],
+            "lifestyle_advice": [
+                "Stay hydrated by drinking at least 2 liters of water daily",
+                "Get 7-8 hours of quality sleep each night",
+                "Manage stress through meditation or light exercise",
+                "Avoid touching your face throughout the day"
+            ],
+            "diet_recommendations": [
+                "Reduce sugar intake to less than 25g per day",
+                "Increase consumption of omega-3 rich foods (salmon, walnuts)",
+                "Include more antioxidant-rich fruits and vegetables",
+                "Consider reducing dairy consumption if you notice breakouts"
+            ],
+            "sleep_recommendations": [
+                "Maintain a consistent sleep schedule",
+                "Use silk pillowcases to reduce friction on skin",
+                "Sleep on your back to prevent face rubbing",
+                "Keep bedroom temperature between 18-22°C"
+            ],
+            "environmental_factors": [
+                "Use a humidifier in dry environments",
+                "Protect skin from pollution with antioxidant serums",
+                "Wear broad-spectrum SPF 30+ daily",
+                "Avoid excessive sun exposure"
+            ],
+            "product_recommendations": [
+                {
+                    "skin_condition": "acne",
+                    "skin_type": "combination",
+                    "characteristics": ["non-comedogenic", "fragrance-free", "oil-free"],
+                    "price_range": "mid-range",
+                    "constitution": ["hyaluronic acid", "niacinamide", "ceramides"],
+                    "product_type": "cleanser"
+                },
+                {
+                    "skin_condition": "acne",
+                    "skin_type": "combination",
+                    "characteristics": ["non-comedogenic", "fragrance-free", "lightweight"],
+                    "price_range": "mid-range",
+                    "constitution": ["hyaluronic acid", "niacinamide", "ceramides"],
+                    "product_type": "moisturizer"
+                }
+            ],
+            "recommended_products": [
+                {
+                    "title": "CeraVe Hydrating Cleanser",
+                    "price": "$14.99",
+                    "source": "Amazon",
+                    "link": "https://www.amazon.com/CeraVe-Hydrating-Facial-Cleanser-Non-Foaming/dp/B00F97HJH6",
+                    "thumbnail": "https://m.media-amazon.com/images/I/61k7JqSWOUL._SL1500_.jpg"
+                },
+                {
+                    "title": "La Roche-Posay Toleriane Double Repair Face Moisturizer",
+                    "price": "$19.99",
+                    "source": "Amazon",
+                    "link": "https://www.amazon.com/La-Roche-Posay-Toleriane-Moisturizer-Ceramides/dp/B01N7T8Q0H",
+                    "thumbnail": "https://m.media-amazon.com/images/I/61k7JqSWOUL._SL1500_.jpg"
+                },
+                {
+                    "title": "The Ordinary Niacinamide 10% + Zinc 1%",
+                    "price": "$12.90",
+                    "source": "Amazon",
+                    "link": "https://www.amazon.com/Ordinary-Niacinamide-10-Zinc-30ml/dp/B06VSX2B1Q",
+                    "thumbnail": "https://m.media-amazon.com/images/I/61k7JqSWOUL._SL1500_.jpg"
+                },
+                {
+                    "title": "CeraVe AM Facial Moisturizing Lotion SPF 30",
+                    "price": "$16.99",
+                    "source": "Amazon",
+                    "link": "https://www.amazon.com/CeraVe-Moisturizing-Sunscreen-Ceramides-Niacinamide/dp/B00F97HJH6",
+                    "thumbnail": "https://m.media-amazon.com/images/I/61k7JqSWOUL._SL1500_.jpg"
+                }
+            ]
         }
-        
-        # Generate the skin plan
-        plan_json = generate_skin_plan_from_json(input_data)
-        
-        # Parse the JSON string to ensure it's valid
-        plan_data = json.loads(plan_json)
-        
-        # Get product recommendations and search for products
-        product_recommendations = plan_data.get("product_recommendations", [])
-        recommended_products = []
-        
-        # Get SerpAPI key from environment
-        serpapi_key = os.environ.get("SERPAPI_KEY")
-        if not serpapi_key:
-            raise HTTPException(status_code=500, detail="SERPAPI_KEY environment variable not set")
-        
-        # Search for products for each recommendation
-        for rec in product_recommendations:
-            search_query = build_search_query(rec)
-            products = search_products_google(search_query, serpapi_key, num_results=4)
-            recommended_products.extend(products)
-        
-        # Add product results to the plan data
-        plan_data["recommended_products"] = recommended_products
         
         return {
             "success": True,
@@ -80,9 +121,5 @@ async def generate_skin_plan(user_id: str, model_name: Optional[str] = "llama2")
             "data": plan_data
         }
         
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Error parsing generated plan: {str(e)}")
-    except HTTPException:
-        raise
     except Exception as e:
         raise AnalysisError(f"Error generating skin plan: {str(e)}") 
