@@ -148,13 +148,17 @@ def get_skin_plan(user_id: str, model_name: str = "medllama2") -> dict:
         return None
 
 def get_timeseries_data(user_id: str) -> dict:
+    """Get timeseries data from the backend"""
     try:
         response = requests.get(f"{API_URL}/timeseries/{user_id}")
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        if data and data.get("success"):
+            return data
+        return {"success": False, "data": []}
     except requests.exceptions.RequestException as e:
         st.error(f"Failed to fetch timeseries data: {e}")
-        return None
+        return {"success": False, "data": []}
 
 def get_summary(user_id: str) -> dict:
     try:
@@ -280,23 +284,39 @@ elif page == "Dashboard":
     with col2:
         st.header("📊 Dashboard")
         st.markdown("Here's what we've learned about your skin!")
+    
+    # Fetch timeseries data
     timeseries_data = get_timeseries_data(USER_ID)
     if timeseries_data and timeseries_data.get("success"):
         data = timeseries_data.get("data", [])
         if data:
+            # Convert to DataFrame
             df = pd.DataFrame(data)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Convert timestamp to datetime, handling ISO format
+            try:
+                df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
+            except ValueError:
+                try:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')
+                except ValueError:
+                    st.error("Error parsing timestamps. Please check the data format.")
+                    st.stop()
+            
+            # Sort by timestamp
+            df = df.sort_values('timestamp')
+            
+            # Create and display the trend graph
             st.subheader("Severity Trend")
-            fig_trend = px.line(df, x="timestamp", y="acne_severity_score", title="Skin Severity Over Time")
+            fig_trend = px.line(df, x="timestamp", y="acne_severity_score", 
+                              title="Skin Severity Over Time",
+                              labels={"acne_severity_score": "Severity Score", "timestamp": "Date"})
+            fig_trend.update_layout(
+                yaxis_range=[0, 100],  # Set y-axis range from 0 to 100
+                yaxis_title="Severity Score (0-100)",
+                xaxis_title="Date"
+            )
             st.plotly_chart(fig_trend, use_container_width=True)
-            st.subheader("Correlations")
-            col_d, col_s = st.columns(2)
-            with col_d:
-                fig_dairy = px.scatter(df, x="diet_dairy", y="acne_severity_score", title="Dairy Intake vs. Severity", trendline="ols")
-                st.plotly_chart(fig_dairy, use_container_width=True)
-            with col_s:
-                fig_sleep = px.scatter(df, x="sleep_hours", y="acne_severity_score", title="Sleep Hours vs. Severity", trendline="ols")
-                st.plotly_chart(fig_sleep, use_container_width=True)
         else:
             col_warning, col_img = st.columns([5, 1])
             with col_warning:
@@ -305,6 +325,7 @@ elif page == "Dashboard":
                 st.image(mascot_images["encouragement"], width=50)
     else:
         st.error("Failed to fetch timeseries data. Please try again later.")
+
     st.subheader("📈 Weekly Analysis")
     summary_data = get_summary(USER_ID)
     if summary_data and summary_data.get("success"):
@@ -334,8 +355,9 @@ elif page == "Dashboard":
                             </style>
                             """, unsafe_allow_html=True)
                         st.progress(normalized_score)
-                        direction = "↑ Progression" if score > 0 else "↓ Regression" if score < 0 else "→ Neutral"
-                        direction_color = "#2ecc71" if score > 0 else "#e74c3c" if score < 0 else "#f1c40f"
+                        # Fixed correlation interpretation: positive = regression, negative = progression
+                        direction = "↑ Regression" if score > 0 else "↓ Progression" if score < 0 else "→ Neutral"
+                        direction_color = "#e74c3c" if score > 0 else "#2ecc71" if score < 0 else "#f1c40f"
                         st.markdown(f'<div style="text-align: center; color: {direction_color}; font-weight: bold;">{direction}</div>', unsafe_allow_html=True)
                         st.markdown(f'<div style="text-align: center;">{score:.2f}</div>', unsafe_allow_html=True)
                     with col3:

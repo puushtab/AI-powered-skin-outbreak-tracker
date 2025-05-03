@@ -38,8 +38,18 @@ def save_timeseries_data(entry: Dict) -> bool:
         # Add id if not present
         if 'id' not in entry:
             entry['id'] = str(uuid.uuid4())
+            
+        # Ensure timestamp is in ISO format
+        if 'timestamp' in entry:
+            try:
+                # Try to parse the timestamp and convert to ISO format
+                timestamp = datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00'))
+                entry['timestamp'] = timestamp.isoformat()
+            except ValueError:
+                # If parsing fails, use current time
+                entry['timestamp'] = datetime.now().isoformat()
         
-        # Prepare the SQL query
+        # Prepare the SQL query for INSERT (not UPDATE)
         columns = ', '.join(entry.keys())
         placeholders = ', '.join(['?' for _ in entry])
         query = f"INSERT INTO timeseries ({columns}) VALUES ({placeholders})"
