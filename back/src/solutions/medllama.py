@@ -289,12 +289,14 @@ def search_products_google(query, api_key, num_results=5):
     }
     response = requests.get("https://serpapi.com/search", params=params)
     results = response.json()
+    # print(json.dumps(results.get("shopping_results", []), indent=2))
+
     products = []
     for item in results.get("shopping_results", [])[:num_results]:
         products.append({
             "title": item.get("title"),
             "price": item.get("price"),
-            "link": item.get("link"),
+            "link": item.get("product_link"),
             "source": item.get("source"),
             "thumbnail": item.get("thumbnail")
         })

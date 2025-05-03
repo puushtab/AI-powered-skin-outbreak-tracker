@@ -161,7 +161,7 @@ def get_user_profile(user_id: str) -> dict:
         return response.json()
     except requests.exceptions.RequestException as e:
         st.error(f"Failed to fetch user profile: {e}")
-        return None
+        response = requests.post(f"{API_URL}/lifestyle", json=lifestyle_data)
 
 def save_user_profile(profile_data: dict) -> bool:
     """Save user profile to the backend"""
@@ -460,6 +460,42 @@ elif page == "Dashboard":
                 st.write("**Environmental Factors**")
                 for factor in plan_data.get("environmental_factors", []):
                     st.write(f"- {factor}")
+            
+            # Display Recommended Products
+            st.subheader("Recommended Products")
+            recommended_products = plan_data.get("recommended_products", [])
+            if recommended_products:
+                # Create 4 columns for the products
+                cols = st.columns(4)
+                for idx, product in enumerate(recommended_products):
+                    with cols[idx % 4]:
+                        # Create a container for each product
+                        with st.container():
+                            # Display product thumbnail
+                            if product.get("thumbnail"):
+                                st.image(product["thumbnail"], width=150)
+                            else:
+                                st.image("https://via.placeholder.com/150?text=No+Image", width=150)
+                            
+                            # Display product name
+                            st.markdown(f"**{product['title']}**")
+                            
+                            # Display price
+                            st.write(f"**Price:** {product['price']}")
+                            
+                            # Display source
+                            st.write(f"*{product['source']}*")
+                            
+                            # Add clickable button for the product link
+                            if product.get("link"):
+                                st.markdown(
+                                    f'<a href="{product["link"]}" target="_blank" style="text-decoration: none;">'
+                                    f'<button style="background-color: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">'
+                                    f'View Product</button></a>',
+                                    unsafe_allow_html=True
+                                )
+            else:
+                st.info("No product recommendations available at this time.")
         else:
             st.error("Failed to generate skin plan. Please try again.")
 
