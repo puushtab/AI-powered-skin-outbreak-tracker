@@ -4,10 +4,10 @@ from datetime import datetime
 import uuid
 import os
 from typing import Optional, Dict
+from pathlib import Path
 
 def create_timeseries_table(db_path="acne_tracker.db"):
     """Create the timeseries table in the SQLite database."""
-    ### TEST PASSED
     try:
         # Check if database file is accessible
         if os.path.exists(db_path) and not os.access(db_path, os.W_OK):
@@ -17,26 +17,30 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Create timeseries table
+        # Drop existing table if it exists
+        cursor.execute("DROP TABLE IF EXISTS timeseries")
+        
+        # Create timeseries table with optional fields
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS timeseries (
             id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
             timestamp TEXT NOT NULL,
-            acne_severity_score REAL NOT NULL,
-            diet_sugar REAL NOT NULL,
-            diet_dairy REAL NOT NULL,
-            diet_alcohol REAL NOT NULL,
-            sleep_hours REAL NOT NULL,
-            sleep_quality TEXT NOT NULL,
-            menstrual_cycle_active INTEGER NOT NULL CHECK(menstrual_cycle_active IN (0, 1)),
-            menstrual_cycle_day INTEGER NOT NULL CHECK(menstrual_cycle_day >= 0),
-            latitude REAL NOT NULL,
-            longitude REAL NOT NULL,
-            humidity REAL NOT NULL,
-            pollution REAL NOT NULL,
-            stress REAL NOT NULL,
-            products_used TEXT NOT NULL,
-            sunlight_exposure REAL NOT NULL
+            acne_severity_score REAL DEFAULT 0,
+            diet_sugar REAL DEFAULT 0,
+            diet_dairy REAL DEFAULT 0,
+            diet_alcohol REAL DEFAULT 0,
+            sleep_hours REAL DEFAULT 0,
+            sleep_quality TEXT DEFAULT 'unknown',
+            menstrual_cycle_active INTEGER DEFAULT 0,
+            menstrual_cycle_day INTEGER DEFAULT 0,
+            latitude REAL DEFAULT 0,
+            longitude REAL DEFAULT 0,
+            humidity REAL DEFAULT 0,
+            pollution REAL DEFAULT 0,
+            stress REAL DEFAULT 0,
+            products_used TEXT DEFAULT '',
+            sunlight_exposure REAL DEFAULT 0
         );
         """
         cursor.execute(create_table_sql)
@@ -45,6 +49,7 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         sample_data = [
             (
                 str(uuid.uuid4()),
+                "test_user_1",
                 datetime.now().isoformat(),
                 75.0,
                 20.0,
@@ -66,10 +71,10 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         
         insert_sql = """
         INSERT INTO timeseries (
-            id, timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
+            id, user_id, timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
             sleep_hours, sleep_quality, menstrual_cycle_active, menstrual_cycle_day,
             latitude, longitude, humidity, pollution, stress, products_used, sunlight_exposure
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
         try:
@@ -193,12 +198,12 @@ def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -
             sleep_hours, sleep_quality, menstrual_cycle_active, menstrual_cycle_day,
             latitude, longitude, humidity, pollution, stress, products_used, sunlight_exposure
         FROM timeseries
-        WHERE id LIKE ?
+        WHERE user_id = ?
         ORDER BY timestamp DESC
         LIMIT 1
         """
         
-        cursor.execute(query, (f"{user_id}%",))
+        cursor.execute(query, (user_id,))
         row = cursor.fetchone()
         
         if not row:
@@ -234,8 +239,95 @@ def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -
         if 'conn' in locals():
             conn.close()
 
+def insert_test_data():
+    """Insert test data for the test user."""
+    try:
+        db_dir = Path(__file__).parent
+        db_path = str(db_dir / "acne_tracker.db")
+        
+        # Ensure database and table exist
+        create_timeseries_table(db_path)
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Test data for test_user_1
+        test_data = [
+            {
+                "user_id": "test_user_1",
+                "timestamp": "2024-05-01T10:00:00",
+                "acne_severity_score": 75.0,
+                "diet_sugar": 20.0,
+                "diet_dairy": 15.0,
+                "diet_alcohol": 0.0,
+                "sleep_hours": 7.5,
+                "sleep_quality": "good",
+                "menstrual_cycle_active": 0,
+                "menstrual_cycle_day": 0,
+                "latitude": 48.8566,
+                "longitude": 2.3522,
+                "humidity": 60.0,
+                "pollution": 30.0,
+                "stress": 5.0,
+                "products_used": "cleanser,moisturizer",
+                "sunlight_exposure": 2.0
+            },
+            {
+                "user_id": "test_user_1",
+                "timestamp": "2024-05-02T10:00:00",
+                "acne_severity_score": 70.0,
+                "diet_sugar": 15.0,
+                "diet_dairy": 10.0,
+                "diet_alcohol": 0.0,
+                "sleep_hours": 8.0,
+                "sleep_quality": "excellent",
+                "menstrual_cycle_active": 0,
+                "menstrual_cycle_day": 0,
+                "latitude": 48.8566,
+                "longitude": 2.3522,
+                "humidity": 55.0,
+                "pollution": 25.0,
+                "stress": 4.0,
+                "products_used": "cleanser,moisturizer,sunscreen",
+                "sunlight_exposure": 1.5
+            },
+            {
+                "user_id": "test_user_1",
+                "timestamp": "2024-05-03T10:00:00",
+                "acne_severity_score": 65.0,
+                "diet_sugar": 10.0,
+                "diet_dairy": 5.0,
+                "diet_alcohol": 0.0,
+                "sleep_hours": 8.5,
+                "sleep_quality": "excellent",
+                "menstrual_cycle_active": 0,
+                "menstrual_cycle_day": 0,
+                "latitude": 48.8566,
+                "longitude": 2.3522,
+                "humidity": 50.0,
+                "pollution": 20.0,
+                "stress": 3.0,
+                "products_used": "cleanser,moisturizer,sunscreen,serum",
+                "sunlight_exposure": 1.0
+            }
+        ]
+        
+        # Insert test data
+        for entry in test_data:
+            columns = ', '.join(entry.keys())
+            placeholders = ', '.join(['?' for _ in entry])
+            query = f"INSERT INTO timeseries ({columns}) VALUES ({placeholders})"
+            cursor.execute(query, list(entry.values()))
+        
+        conn.commit()
+        conn.close()
+        print("Test data inserted successfully")
+    except Exception as e:
+        print(f"Error inserting test data: {e}")
+
 if __name__ == "__main__":
     try:
         setup_databases()
+        insert_test_data()
     except Exception as e:
         print(f"Error during database setup: {e}")
