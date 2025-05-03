@@ -9,12 +9,14 @@ from pydantic import BaseModel
 from datetime import date, datetime
 import tempfile
 import traceback
+import json
 from typing import Optional, List, Dict
 
 sys.path.append("..")
 from tsa.analyse_acne_corr import analyze_acne_data
 from detection.score import analyze_skin_image
 from profile import init_db, save_profile_to_db, get_profile_from_db
+from ..solutions.medllama import generate_skin_plan_from_json
 
 app = FastAPI(title="Acne Tracker Analysis API")
 
@@ -201,6 +203,86 @@ async def get_timeseries(user_id: str):
     finally:
         if 'conn' in locals():
             conn.close()
+
+# --------------------------- solutions ---------------------------
+DB_PATH = "../tsa/acne_tracker.db"
+def calculate_age(dob_iso: str) -> int:
+    """Utility to compute integer age from ISO date string."""
+    dob = datetime.date.fromisoformat(dob_iso)
+    today = datetime.date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+
+def fetch_latest_severity(user_id: str) -> Dict:
+    """Return the latest skin‑severity record for the user or sensible defaults."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT severity_score,
+               disease,
+               previous_treatment,
+               diet
+        FROM severity_log
+        WHERE user_id = ?
+        ORDER BY date DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if row:
+        return {
+            "severity_score": row["severity_score"],
+            "disease": row["disease"] or "acne",
+            "previous_treatment": row["previous_treatment"] or "",
+            "diet": row["diet"] or "",
+        }
+    # Fallback defaults when no record is found
+    return {
+        "severity_score": 50,
+        "disease": "acne",
+        "previous_treatment": "",
+        "diet": "",
+    }
+
+@app.get("/skin-plan/{user_id}", summary="Generate a personalised skin‑treatment plan")
+async def skin_plan(user_id: str):
+    """Assemble DB data, call `generate_skin_plan_from_json`, and return its output."""
+
+    # 1. Pull the user profile
+    profile = get_profile_from_db(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # 2. Latest severity / disease information
+    severity_info = fetch_latest_severity(user_id)
+
+    # 3. Build the payload expected by MedLlama
+    payload = {
+        "disease": severity_info["disease"],
+        "severity_score": severity_info["severity_score"],
+        "sex": profile.get("gender", "Not Specified"),
+        "age": calculate_age(profile["dob"]),
+        "weight": profile["weight"],
+        "previous_treatment": severity_info["previous_treatment"],
+        "diet": severity_info["diet"],
+        "actual_date": datetime.date.today().isoformat(),
+        "model_name": "medllama2",  # optional; override if desired
+    }
+
+    # 4. Generate plan via MedLlama
+    try:
+        plan_str = generate_skin_plan_from_json(payload)
+        return json.loads(plan_str)  # convert JSON string to dict for FastAPI
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"MedLlama generation failed: {e}")
 
 @app.get("/analyze/", response_model=AnalysisResponse)
 async def analyze():
