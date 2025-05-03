@@ -30,11 +30,6 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
     """
     Sends image bytes to the backend detection API, processes the response,
     and displays the results (score, metrics, heatmap, detections) in Streamlit.
-
-    Args:
-        image_bytes (bytes): The image content as bytes.
-        filename (str): The original filename of the image (used for type guessing).
-        api_url (str): The base URL of the backend API.
     """
     st.info("⏳ Processing image... Please wait.")
     try:
@@ -76,16 +71,19 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             heatmap_b64 = result.get("heatmap_image_base64")
             detections = result.get("detections", [])
 
-            # If we have pending lifestyle data, save it now with the severity score
-            if st.session_state.pending_lifestyle_data is not None:
-                pending_data = st.session_state.pending_lifestyle_data
-                pending_data["acne_severity_score"] = score
-                
-                if save_lifestyle_data(pending_data):
-                    st.success("✅ Lifestyle data saved with severity score!")
-                    st.session_state.pending_lifestyle_data = None
-                else:
-                    st.error("Failed to save lifestyle data with severity score.")
+            # Always save the severity score with lifestyle data
+            lifestyle_data = st.session_state.pending_lifestyle_data if st.session_state.pending_lifestyle_data is not None else {}
+            lifestyle_data.update({
+                "user_id": USER_ID,
+                "timestamp": datetime.now().isoformat(),
+                "acne_severity_score": score
+            })
+            
+            if save_lifestyle_data(lifestyle_data):
+                st.success("✅ Analysis data saved successfully!")
+                st.session_state.pending_lifestyle_data = None
+            else:
+                st.error("Failed to save analysis data.")
 
             # Display Score and Metrics in columns
             col_score, col_metrics = st.columns(2)
@@ -363,7 +361,18 @@ elif page == "Dashboard":
         data = timeseries_data.get("data", [])
         if data:
             df = pd.DataFrame(data)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            # Convert timestamp to datetime, handling different formats
+            try:
+                df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
+            except ValueError:
+                try:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')
+                except ValueError:
+                    st.error("Error parsing timestamps. Please check the data format.")
+                    st.stop()  # Use st.stop() instead of return
+                
+            # Sort by timestamp
+            df = df.sort_values('timestamp')
             
             # Severity Trend
             st.subheader("Severity Trend")
