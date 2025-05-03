@@ -9,9 +9,9 @@ from src.api.config.settings import MODEL_WEIGHTS_PATH, ALLOWED_FILE_TYPES
 from src.detection.score import analyze_skin_image
 import tempfile
 
-router = APIRouter(prefix="/detect", tags=["detection"])
+router = APIRouter(tags=["detection"])
 
-@router.post("/", response_model=DetectionResponse)
+@router.post("/analyze-image", response_model=DetectionResponse)
 async def detect_skin_conditions(file: UploadFile = File(...)):
     if file.content_type not in ALLOWED_FILE_TYPES:
         raise InvalidFileTypeError(file.content_type)

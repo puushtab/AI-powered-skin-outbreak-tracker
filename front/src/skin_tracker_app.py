@@ -14,7 +14,7 @@ import json
 st.set_page_config(page_title="AI-Psowered Skin Outbreak Tracker", layout="wide")
 
 # Backend API URL - Update this to match your backend URL
-API_URL = "http://localhost:8000/api/v1"
+API_URL = "http://localhost:8000"  # Base URL only
 
 # Mock user ID (replace with actual authentication in a real application)
 USER_ID = "test_user_1"
@@ -25,11 +25,6 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
     """
     Sends image bytes to the backend detection API, processes the response,
     and displays the results (score, metrics, heatmap, detections) in Streamlit.
-
-    Args:
-        image_bytes (bytes): The image content as bytes.
-        filename (str): The original filename of the image (used for type guessing).
-        api_url (str): The base URL of the backend API.
     """
     st.info("⏳ Processing image... Please wait.")
     try:
@@ -41,23 +36,23 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             if ext in ["jpg", "jpeg"]: content_type = "image/jpeg"
             elif ext == "png": content_type = "image/png"
             elif ext == "bmp": content_type = "image/bmp"
-            else: content_type = "application/octet-stream" # Default fallback
-            print(f"Warning: Could not guess content type for '{filename}', using '{content_type}'.") # Log fallback
+            else: content_type = "application/octet-stream"
+            print(f"Warning: Could not guess content type for '{filename}', using '{content_type}'.")
 
         # Check if the determined content type is allowed by the backend
         allowed_types = ["image/jpeg", "image/png", "image/bmp"]
         if content_type not in allowed_types:
             st.error(f"Unsupported file type '{content_type}' derived from '{filename}'. Please upload JPG, PNG, or BMP.")
-            return # Stop processing
+            return
 
         # --- Send Request with Explicit Content-Type ---
-        files = {"file": (filename, image_bytes, content_type)} # Tuple: (filename, file_bytes, content_type)
-        detect_endpoint = f"{api_url}/detect/"
-        print(f"Sending request to {detect_endpoint} with Content-Type: {content_type}") # Debugging info
+        files = {"file": (filename, image_bytes, content_type)}
+        detect_endpoint = f"{api_url}/detect"
+        print(f"Sending request to {detect_endpoint} with Content-Type: {content_type}")
 
-        response = requests.post(detect_endpoint, files=files, timeout=120) # Added timeout
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
-        result = response.json() # Parse JSON response
+        response = requests.post(detect_endpoint, files=files, timeout=120)
+        response.raise_for_status()
+        result = response.json()
 
         # --- Display Results ---
         if result.get("success"):
@@ -74,16 +69,16 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             # Display Score and Metrics in columns
             col_score, col_metrics = st.columns(2)
             with col_score:
-                 if score is not None:
+                if score is not None:
                     st.metric(label="Facial Severity Score", value=f"{score:.1f} / 100")
-                 else:
+                else:
                     st.write("**Severity Score:** N/A")
 
             with col_metrics:
-                 st.write(f"**Affected Area:** {perc_area:.2f}%" if isinstance(perc_area, (int, float)) else "N/A")
-                 st.write(f"**Avg Intensity:** {avg_intensity:.2f}" if isinstance(avg_intensity, (int, float)) else "N/A")
-                 st.write(f"**Lesion Count:** {lesion_count}" if isinstance(lesion_count, int) else "N/A")
-                 st.markdown("---") # Separator
+                st.write(f"**Affected Area:** {perc_area:.2f}%" if isinstance(perc_area, (int, float)) else "N/A")
+                st.write(f"**Avg Intensity:** {avg_intensity:.2f}" if isinstance(avg_intensity, (int, float)) else "N/A")
+                st.write(f"**Lesion Count:** {lesion_count}" if isinstance(lesion_count, int) else "N/A")
+                st.markdown("---")
 
             # Display Original Image and Heatmap side-by-side
             st.subheader("Visual Analysis")
@@ -98,14 +93,12 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             with col2:
                 if heatmap_b64:
                     try:
-                        # Decode Base64 string to bytes
                         heatmap_bytes = base64.b64decode(heatmap_b64)
-                        # Open bytes as image
                         heatmap_image = Image.open(io.BytesIO(heatmap_bytes))
                         st.image(heatmap_image, caption="Severity Heatmap", use_column_width=True)
                     except Exception as e:
                         st.error(f"Could not decode or display heatmap: {e}")
-                        print(f"Base64 decode error details: {e}") # Log detailed error
+                        print(f"Base64 decode error details: {e}")
                 else:
                     st.info("Heatmap was not generated or provided by the backend.")
 
@@ -122,19 +115,19 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             st.error(f"❗️ Analysis failed: {result.get('message', 'Unknown error from backend')}")
 
     except requests.exceptions.ConnectionError:
-         st.error(f"Connection Error: Could not connect to the backend API at {api_url}. Please ensure the backend server is running.")
+        st.error(f"Connection Error: Could not connect to the backend API at {api_url}. Please ensure the backend server is running.")
     except requests.exceptions.Timeout:
-         st.error("Request Timeout: The analysis took too long to respond. Please try again.")
+        st.error("Request Timeout: The analysis took too long to respond. Please try again.")
     except requests.exceptions.RequestException as e:
         st.error(f"API Request Failed: {e}")
-        try: # Attempt to show more detailed error from response
-             st.error(f"Response status: {e.response.status_code}")
-             st.error(f"Response text: {e.response.text}")
+        try:
+            st.error(f"Response status: {e.response.status_code}")
+            st.error(f"Response text: {e.response.text}")
         except AttributeError:
-            pass # No response object available
+            pass
     except Exception as e:
         st.error(f"An unexpected error occurred in Streamlit: {e}")
-        traceback.print_exc() # Print stack trace to Streamlit console for debugging
+        traceback.print_exc()
 
 # --- Helper Functions for API Calls ---
 

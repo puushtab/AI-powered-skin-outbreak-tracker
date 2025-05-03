@@ -1,5 +1,3 @@
-
-
 import os
 import torch
 import cv2
@@ -13,11 +11,15 @@ import base64
 
 # --- Default Configuration Constants ---
 DEFAULT_SEVERITY_SCORE_MAP = {
-    'Acne': 5, 'Pigmentation': 4, 'Blackheads': 2,
-    'Excess sebum': 2, 'Enlarged Pores': 1,
+    'whiteheads': 1,     # Mild, non-inflammatory
+    'blackheads': 1,     # Mild, non-inflammatory
+    'papules': 3,        # Mild to moderate, inflammatory
+    'pustules': 4,       # Moderate, inflammatory (contains pus)
+    'nodules': 5,        # Severe, deep and painful
+    'dark spot': 2       # Post-inflammatory hyperpigmentation (not active acne)
 }
-DEFAULT_SEVERITY_SCORE_FALLBACK = 1
-DEFAULT_HEATMAP_WEIGHTING = 'severity'
+DEFAULT_SEVERITY_SCORE = 1
+DEFAULT_HEATMAP_WEIGHTING = 'confidence'
 DEFAULT_HEATMAP_ALPHA = 0.5
 DEFAULT_COLORMAP = cv2.COLORMAP_JET
 DEFAULT_GAUSSIAN_SPREAD_SIGMA = 90
@@ -109,7 +111,7 @@ def calculate_acneai_score(detection_results, image_shape, severity_map, default
 def analyze_skin_image(model_path, image_path,
                        conf_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
                        severity_map=DEFAULT_SEVERITY_SCORE_MAP,
-                       default_severity=DEFAULT_SEVERITY_SCORE_FALLBACK,
+                       default_severity=DEFAULT_SEVERITY_SCORE,
                        heatmap_alpha=DEFAULT_HEATMAP_ALPHA,
                        heatmap_sigma=DEFAULT_GAUSSIAN_SPREAD_SIGMA
                        # Add other heatmap/score params as needed
@@ -134,7 +136,7 @@ def analyze_skin_image(model_path, image_path,
               'severity_score' (float): Calculated AcneAI severity score (S).
               'percentage_area' (float): Info: Percentage of image area covered by detections.
               'average_intensity' (float): Info: Average severity score (s_i) of detected items.
-              'lesion_count' (int): Info: Number of valid lesions detected and used in score.
+         y     'lesion_count' (int): Info: Number of valid lesions detected and used in score.
               'original_image_bgr' (np.ndarray): Original image loaded (BGR).
               'heatmap_overlay_bgr' (np.ndarray): Image with heatmap overlay (BGR).
               'detections' (list): List of detected objects (class_name, confidence).
@@ -230,20 +232,15 @@ if __name__ == "__main__":
     print("--- Running Scoring Script Example (using AcneAI score) ---")
 
     # Define Inputs for the Example
-    example_model_path = '/content/Skin-Issue-Detection-1/run_12/weights/best.pt' # CHANGE ME
-    example_image_path = '/content/final_test.jpg' # CHANGE ME
-    example_output_path = './acneai_analysis_output.png' # Optional save path
+    example_model_path = 'best.pt' 
+    example_image_path = 'final_test.jpg' 
+    example_output_path = './acneai_analysis_output.png' 
     display_results = True
 
     # Call the updated Analysis Function
     analysis_results = analyze_skin_image(
         model_path=example_model_path,
-        image_path=example_image_path,
-        conf_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
-        severity_map=DEFAULT_SEVERITY_SCORE_MAP,
-        default_severity=DEFAULT_SEVERITY_SCORE_FALLBACK,
-        heatmap_alpha=DEFAULT_HEATMAP_ALPHA,
-        heatmap_sigma=DEFAULT_GAUSSIAN_SPREAD_SIGMA
+   heatmap_sigma=DEFAULT_GAUSSIAN_SPREAD_SIGMA
     )
 
     # Process the Results
