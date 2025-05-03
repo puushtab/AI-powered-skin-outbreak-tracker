@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.config.settings import ALLOWED_ORIGINS, API_PREFIX
-from src.api.routes import profile, detection, analysis
+from src.api.routes import profile, detection, analysis, skin_plan
 from src.db.user_profile_db import init_db
 
 app = FastAPI(
@@ -26,6 +26,7 @@ init_db()
 app.include_router(profile.router, prefix=API_PREFIX)
 app.include_router(detection.router, prefix=API_PREFIX)
 app.include_router(analysis.router, prefix=API_PREFIX)
+app.include_router(skin_plan.router, prefix=API_PREFIX)
 
 @app.get("/")
 async def root():
