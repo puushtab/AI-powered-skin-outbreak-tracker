@@ -4,6 +4,7 @@ import os
 import ollama
 from typing import Dict, Optional
 from datetime import datetime, date
+import requests
 
 def calculate_age(dob: str) -> int:
     """Calculate age from date of birth string (YYYY-MM-DD format)"""
@@ -32,6 +33,13 @@ def generate_skin_plan(
         - diet_recommendations: list of diet-specific recommendations
         - sleep_recommendations: list of sleep-specific recommendations
         - environmental_factors: list of environmental factor recommendations
+        - product_recommendations: list of product recommendations with:
+            - skin_condition: str
+            - skin_type: str
+            - characteristics: list of str
+            - price_range: str
+            - constitution: list of str
+            - product_type: str
     """
     # Extract and process user profile data
     age = calculate_age(user_profile.get("dob", ""))
@@ -60,7 +68,15 @@ def generate_skin_plan(
         f"  \"lifestyle_advice\": [\"advice 1\", \"advice 2\"],\n"
         f"  \"diet_recommendations\": [\"diet rec 1\", \"diet rec 2\"],\n"
         f"  \"sleep_recommendations\": [\"sleep rec 1\", \"sleep rec 2\"],\n"
-        f"  \"environmental_factors\": [\"env factor 1\", \"env factor 2\"]\n"
+        f"  \"environmental_factors\": [\"env factor 1\", \"env factor 2\"],\n"
+        f"  \"product_recommendations\": [{{\n"
+        f"    \"skin_condition\": \"acne/rosacea/dryness/etc\",\n"
+        f"    \"skin_type\": \"oily/dry/combination/sensitive\",\n"
+        f"    \"characteristics\": [\"non-comedogenic\", \"fragrance-free\", etc],\n"
+        f"    \"price_range\": \"budget/mid-range/premium\",\n"
+        f"    \"constitution\": [\"oil-free\", \"alcohol-free\", etc],\n"
+        f"    \"product_type\": \"cleanser/moisturizer/serum/etc\"\n"
+        f"  }}]\n"
         f"}}\n\n"
         f"Patient Data:\n"
         f"- Age: {age}\n"
@@ -129,6 +145,16 @@ def generate_skin_plan(
                 "environmental_factors": [
                     "Protect skin from sun exposure",
                     "Keep environment clean and dust-free"
+                ],
+                "product_recommendations": [
+                    {
+                        "skin_condition": "acne",
+                        "skin_type": "combination",
+                        "characteristics": ["non-comedogenic", "fragrance-free"],
+                        "price_range": "mid-range",
+                        "constitution": ["oil-free", "alcohol-free"],
+                        "product_type": "cleanser"
+                    }
                 ]
             }
             return json.dumps(default_response, indent=2)
@@ -159,6 +185,16 @@ def generate_skin_plan(
             "environmental_factors": [
                 "Protect skin from sun exposure",
                 "Keep environment clean and dust-free"
+            ],
+            "product_recommendations": [
+                {
+                    "skin_condition": "acne",
+                    "skin_type": "combination",
+                    "characteristics": ["non-comedogenic", "fragrance-free"],
+                    "price_range": "mid-range",
+                    "constitution": ["oil-free", "alcohol-free"],
+                    "product_type": "cleanser"
+                }
             ]
         }
         return json.dumps(default_response, indent=2)
@@ -222,5 +258,73 @@ def test_generate_skin_plan():
     plan = generate_skin_plan_from_json(sample_input)
     print(plan)
 
+def build_search_query(product_recommendation: Dict) -> str:
+    """
+    Builds a search query string from product recommendation data.
+    
+    Args:
+        product_recommendation: Dictionary containing:
+            - skin_condition: str
+            - skin_type: str
+            - characteristics: list of str
+            - price_range: str
+            - constitution: list of str
+            - product_type: str
+            
+    Returns:
+        Formatted search query string
+    """
+    characteristics = " ".join(product_recommendation["characteristics"])
+    constitution = " ".join(product_recommendation["constitution"])
+    
+    return f"{product_recommendation['product_type']} for {product_recommendation['skin_condition']} for {product_recommendation['skin_type']} skin under {product_recommendation['price_range']} with {constitution} {characteristics}"
+
+def search_products_google(query, api_key, num_results=5):
+    params = {
+        "engine": "google_shopping",
+        "q": query,
+        "api_key": api_key,
+        "hl": "en",
+        "gl": "us"
+    }
+    response = requests.get("https://serpapi.com/search", params=params)
+    results = response.json()
+    products = []
+    for item in results.get("shopping_results", [])[:num_results]:
+        products.append({
+            "title": item.get("title"),
+            "price": item.get("price"),
+            "link": item.get("link"),
+            "source": item.get("source"),
+            "thumbnail": item.get("thumbnail")
+        })
+    return products
+
 if __name__ == "__main__":
-    test_generate_skin_plan()
+    # test_generate_skin_plan()
+
+        # Test the product search
+    print("\n--- Testing search_products_google ---")
+    # Example: build a query for a cleanser for acne-prone combination skin
+    example_product_rec = {
+        "skin_condition": "acne",
+        "skin_type": "combination",
+        "characteristics": ["non-comedogenic", "fragrance-free"],
+        "price_range": "mid-range",
+        "constitution": ["oil-free", "alcohol-free"],
+        "product_type": "cleanser"
+    }
+    search_query = build_search_query(example_product_rec)
+    print(f"Search query: {search_query}")
+
+    # Replace with your actual SerpAPI key
+    serpapi_key = os.environ.get("SERPAPI_KEY")
+    if not serpapi_key:
+        raise ValueError("Please set the SERPAPI_KEY environment variable.")
+    products = search_products_google(search_query, serpapi_key, num_results=3)
+    print("Top products found:")
+    for idx, product in enumerate(products, 1):
+        print(f"{idx}. {product['title']} - {product['price']} ({product['source']})")
+        print(f"   Link: {product['link']}")
+        if product.get("thumbnail"):
+            print(f"   Image: {product['thumbnail']}")
