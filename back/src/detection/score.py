@@ -9,14 +9,14 @@ import traceback
 from scipy.ndimage import gaussian_filter
 from ultralytics import YOLO
 
-# --- Configuration Constants --- <<< --- EDIT THESE VALUES --- >>>
+
 MODEL_WEIGHTS_PATH = r'best.pt'     
 TEST_IMAGE_PATH = r'final_test.jpg' 
 CONFIDENCE_THRESHOLD = 0.3                     
 OUTPUT_PATH = r'output.jpg' 
 NO_DISPLAY = False                               
 
-# Severity mapping - Adjust based on your model's classes and desired weighting
+
 SEVERITY_SCORE_MAP = {
     'Acne': 5,
     'Pigmentation': 4,
@@ -139,6 +139,130 @@ def calculate_facial_severity_v2(detection_results, image_shape, severity_map, d
     final_score = max(score_range[0], min(score_range[1], final_score))
     return final_score, percentage_affected_area, average_intensity, N
 
+def analyze_skin_image(model_path, image_path,
+                       conf_threshold=CONFIDENCE_THRESHOLD,
+                       severity_map=SEVERITY_SCORE_MAP,
+                       default_severity=DEFAULT_SEVERITY_SCORE,
+                       heatmap_alpha=HEATMAP_ALPHA,
+                       heatmap_sigma=GAUSSIAN_SPREAD_SIGMA,
+                       area_weight=AREA_WEIGHT,
+                       intensity_weight=INTENSITY_WEIGHT,
+                       score_range=SCORE_RANGE):
+    """
+    Loads a model, predicts on an image, calculates severity score,
+    generates a heatmap, and returns the results.
+
+    Args:
+        model_path (str): Path to the trained YOLOv8 model (.pt file).
+        image_path (str): Path to the input image file.
+        conf_threshold (float): Confidence threshold for detection.
+        severity_map (dict): Mapping of class names to severity scores.
+        default_severity (int/float): Default severity score for unmapped classes.
+        heatmap_alpha (float): Transparency for the heatmap overlay.
+        heatmap_sigma (float): Sigma value for Gaussian spread heatmap.
+        area_weight (float): Weight for area component in score calculation.
+        intensity_weight (float): Weight for intensity component in score calculation.
+        score_range (tuple): Min and max possible score (e.g., (0, 100)).
+
+    Returns:
+        dict: A dictionary containing results:
+              'success' (bool): True if analysis completed, False otherwise.
+              'message' (str): Status message or error description.
+              'severity_score' (float): Calculated overall severity score.
+              'percentage_area' (float): Percentage of image area covered by detections.
+              'average_intensity' (float): Average severity score of detected items.
+              'lesion_count' (int): Number of valid lesions detected and scored.
+              'original_image_bgr' (np.ndarray): Original image loaded (BGR).
+              'heatmap_overlay_bgr' (np.ndarray): Image with heatmap overlay (BGR).
+              'detections' (list): List of detected objects (class_name, confidence).
+              'model_classes' (dict): Class mapping from the loaded model.
+              Returns None if critical errors occur (e.g., file not found).
+    """
+    results = {
+        'success': False, 'message': 'Analysis not started.',
+        'severity_score': score_range[0], 'percentage_area': 0.0,
+        'average_intensity': 0.0, 'lesion_count': 0,
+        'original_image_bgr': None, 'heatmap_overlay_bgr': None,
+        'detections': [], 'model_classes': {}
+    }
+
+    # --- Validate Inputs ---
+    if not os.path.exists(model_path):
+        results['message'] = f"Model file not found: {model_path}"
+        return results
+    if not os.path.exists(image_path):
+        results['message'] = f"Image file not found: {image_path}"
+        return results
+
+    try:
+        # --- Load Model ---
+        print(f"--- Loading Model: {model_path} ---")
+        model = YOLO(model_path)
+        results['model_classes'] = getattr(model, 'names', {})
+        if not isinstance(results['model_classes'], dict): results['model_classes'] = {}
+        print(f"Model loaded. Classes: {results['model_classes']}")
+
+        # --- Read Image ---
+        print(f"\n--- Reading Image: {image_path} ---")
+        image_bgr = cv2.imread(image_path)
+        if image_bgr is None:
+            results['message'] = f"Could not read image file: {image_path}"
+            return results
+        results['original_image_bgr'] = image_bgr.copy() # Store original
+        original_shape = image_bgr.shape
+        print(f"Image shape: {original_shape}")
+
+        # --- Run Prediction ---
+        print(f"\n--- Running Prediction (Confidence: {conf_threshold}) ---")
+        predict_results = model.predict(source=image_path, conf=conf_threshold, save=False)
+
+        # --- Calculate Score ---
+        print("\n--- Calculating Severity Score ---")
+        score, perc_a, avg_i, n_lesions = calculate_facial_severity_v2(
+            predict_results, original_shape, severity_map, default_severity,
+            score_range=score_range, area_weight=area_weight, intensity_weight=intensity_weight
+        )
+        results.update({
+            'severity_score': score, 'percentage_area': perc_a,
+            'average_intensity': avg_i, 'lesion_count': n_lesions
+        })
+        print(f"Score calculated: {score:.2f}")
+
+        # --- Generate Heatmap ---
+        print(f"\n--- Generating Heatmap (Sigma: {heatmap_sigma}, Alpha: {heatmap_alpha}) ---")
+        heatmap_overlay, _ = generate_spread_heatmap(
+            image_bgr, predict_results, severity_map, default_severity,
+            alpha=heatmap_alpha, spread_sigma=heatmap_sigma
+            # Pass other heatmap params if needed
+        )
+        results['heatmap_overlay_bgr'] = heatmap_overlay
+        print("Heatmap generated.")
+
+        # --- Extract Detections ---
+        if predict_results and len(predict_results) > 0 and hasattr(predict_results[0], 'boxes') and len(predict_results[0].boxes) > 0:
+            names_map = results['model_classes']
+            for box in predict_results[0].boxes:
+                try:
+                    class_id = int(box.cls[0]); confidence = float(box.conf[0])
+                    class_name = names_map.get(class_id, f"class_{class_id}")
+                    results['detections'].append({'class_name': class_name, 'confidence': confidence})
+                except (AttributeError, IndexError, TypeError): continue # Skip problematic box
+
+        results['success'] = True
+        results['message'] = 'Analysis completed successfully.'
+
+    except (FileNotFoundError, IOError) as e:
+        results['message'] = f"File Error: {e}"
+        print(f"ERROR: {results['message']}")
+    except ImportError as e:
+         results['message'] = f"Import Error: Missing library. {e}."
+         print(f"ERROR: {results['message']}")
+    except Exception as e:
+        results['message'] = f"An unexpected error occurred: {e}"
+        print(f"\nERROR: {results['message']}")
+        traceback.print_exc()
+
+    return results
 
 def main():
     """Main function to run scoring and heatmap generation with hardcoded settings."""
