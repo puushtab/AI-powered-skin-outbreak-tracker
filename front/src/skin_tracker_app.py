@@ -462,7 +462,7 @@ elif page == "Dashboard":
                     st.write(f"- {factor}")
             
             # Display Recommended Products
-            st.subheader("Recommended Products")
+            st.subheader("Recommended Products for your profile")
             recommended_products = plan_data.get("recommended_products", [])
             if recommended_products:
                 # Create 4 columns for the products
