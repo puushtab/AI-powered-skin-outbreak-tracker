@@ -66,6 +66,23 @@ def generate_summary(trend: str, change_magnitude: float, avg_severity: float, c
     if trend == "no data":
         return "No data available for the past week to assess acne severity trends."
     
+    # Format the severity score
+    severity_text = f"with an average severity score of {avg_severity:.1f}"
+    
+    # Handle different trend cases
+    if trend == "stable":
+        base_text = f"Your acne severity has remained stable {severity_text}"
+    else:
+        # Format the change magnitude
+        if change_magnitude < 0.1:
+            change_text = "slightly"
+        elif change_magnitude < 0.5:
+            change_text = "moderately"
+        else:
+            change_text = "significantly"
+        
+        base_text = f"Your acne severity has {change_text} {trend} {severity_text}"
+    
     valid_corrs = {k: v for k, v in correlations.items() if not np.isnan(v)}
     if valid_corrs:
         # Sort correlations by absolute value (descending)
@@ -111,7 +128,7 @@ def generate_summary(trend: str, change_magnitude: float, avg_severity: float, c
                     phrase = f"changes in {factor_name}"
                 factor_phrases.append(phrase)
             
-            # Combine phrases naturally (e.g., "higher sugar and dairy" or "higher sugar, dairy, and stress")
+            # Combine phrases naturally
             if len(factor_phrases) == 1:
                 attribution = factor_phrases[0]
             elif len(factor_phrases) == 2:
@@ -119,15 +136,9 @@ def generate_summary(trend: str, change_magnitude: float, avg_severity: float, c
             else:
                 attribution = f"{', '.join(factor_phrases[:-1])}, and {factor_phrases[-1]}"
             
-            return (
-                f"This week, your acne severity has {trend} by {change_magnitude:.2f} points "
-                f"(average score: {avg_severity:.2f}), which is likely due to {attribution}."
-            )
+            return f"{base_text}. This appears to be related to {attribution}."
     
-    return (
-        f"This week, your acne severity has {trend} by {change_magnitude:.2f} points "
-        f"(average score: {avg_severity:.2f}), but no clear correlation with tracked factors was found."
-    )
+    return f"{base_text}. No clear correlations with tracked factors were found."
 
 def analyze_acne_data(db_path: str, end_date: datetime = None) -> tuple:
     """Main function to analyze acne data and return correlations and summary."""

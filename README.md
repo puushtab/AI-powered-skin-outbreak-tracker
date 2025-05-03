@@ -49,10 +49,19 @@ pip install -r requirements.txt
 ```bash
 PYTHONPATH=$PYTHONPATH:. python3 src/db/create_db.py
 ```
+In Windows:
+```
+$env:PYTHONPATH = "$env:PYTHONPATH;."; python src/db/create_db.py
+```
 
 5. Start the backend server:
 ```bash
 PYTHONPATH=$PYTHONPATH:. uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+In Windows:
+```bash
+$env:PYTHONPATH = "$env:PYTHONPATH;."; uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The backend API will be available at: http://localhost:8000
