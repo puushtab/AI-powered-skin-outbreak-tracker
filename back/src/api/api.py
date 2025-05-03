@@ -12,9 +12,8 @@ import traceback
 from typing import Optional, List, Dict
 
 sys.path.append("..")
-from tsa.analyse_acne_corr import analyze_acne_data
+from correlation.analyse_acne_corr import analyze_acne_data
 from detection.score import analyze_skin_image
-from profile import init_db, save_profile_to_db, get_profile_from_db
 
 app = FastAPI(title="Acne Tracker Analysis API")
 
@@ -27,6 +26,30 @@ app.add_middleware(
 )
 
 # Initialize database on startup
+def init_db():
+    """Initialize the user_profiles.db database with the profiles table."""
+    db_path = "../db/user_profiles.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        create_table_sql = """
+        CREATE TABLE IF NOT EXISTS profiles (
+            user_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            dob TEXT NOT NULL,
+            height REAL NOT NULL CHECK(height >= 0),
+            weight REAL NOT NULL CHECK(weight >= 0),
+            gender TEXT NOT NULL
+        );
+        """
+        cursor.execute(create_table_sql)
+        conn.commit()
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize database: {str(e)}")
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
 init_db()
 MODEL_WEIGHTS_PATH = r'../detection/best.pt'
 
@@ -41,6 +64,54 @@ def get_db_connection(db_path: str):
         return conn
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Failed to connect to database {db_path}: {str(e)}")
+
+# ---------------------------
+# Database Operations
+# ---------------------------
+
+def save_profile_to_db(user_id: str, name: str, dob: str, height: float, weight: float, gender: str):
+    """Save or update a profile in the user_profiles.db."""
+    db_path = "../db/user_profiles.db"
+    try:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        insert_sql = """
+        INSERT OR REPLACE INTO profiles (user_id, name, dob, height, weight, gender)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """
+        cursor.execute(insert_sql, (user_id, name, dob, height, weight, gender))
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        raise HTTPException(status_code=400, detail=f"Integrity error: {str(e)}")
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+def get_profile_from_db(user_id: str):
+    """Retrieve a profile from the user_profiles.db by user_id."""
+    db_path = "../db/user_profiles.db"
+    try:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM profiles WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "user_id": row[0],
+                "name": row[1],
+                "dob": row[2],
+                "height": row[3],
+                "weight": row[4],
+                "gender": row[5]
+            }
+        return None
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 # ---------------------------
 # Pydantic Models
@@ -111,6 +182,8 @@ async def save_profile(profile: Profile):
             gender=profile.gender
         )
         return {"message": "Profile saved successfully"}
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save profile: {str(e)}")
 
@@ -122,6 +195,8 @@ async def get_profile(user_id: str):
             return profile
         else:
             raise HTTPException(status_code=404, detail="Profile not found")
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}")
 
@@ -183,7 +258,6 @@ async def get_timeseries(user_id: str):
         cursor = conn.cursor()
         
         # Note: This assumes the timeseries table has a user_id column (not in current schema).
-        # If user_id is not in the schema, you'll need to modify the query or schema.
         # For now, we'll fetch all entries as a placeholder.
         query = "SELECT * FROM timeseries"  # Modify to "WHERE user_id = ?" if schema updated
         cursor.execute(query)  # Add (user_id,) as params if WHERE clause is used
@@ -280,8 +354,8 @@ async def detect_skin_conditions(file: UploadFile = File(..., description="Image
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "api:app",     # module path to your FastAPI app
-        host="0.0.0.0",         # listen on all interfaces
-        port=8000,              # or any port you prefer
-        reload=True            # auto-reload on code changes
+        "api:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
     )
