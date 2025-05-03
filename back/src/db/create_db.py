@@ -6,6 +6,7 @@ import os
 
 def create_timeseries_table(db_path="acne_tracker.db"):
     """Create the timeseries table in the SQLite database."""
+    ### TEST PASSED
     try:
         # Check if database file is accessible
         if os.path.exists(db_path) and not os.access(db_path, os.W_OK):

@@ -17,15 +17,9 @@ from tsa import analyse_acne_corr
 # --- Rename 'profile.py' to 'user_profile.py' in your file system ---
 # Then change the import below:
 try:
-    from user_profile import init_db, save_profile_to_db, get_profile_from_db
-except ImportError as e:
-    print("="*50)
-    print("ERROR: Could not import from 'user_profile'.")
-    print(">>> Did you rename 'back/src/api/profile.py' to 'user_profile.py'? <<<")
-    print(f"Import error details: {e}")
-    print("="*50)
-    # Set to None so app might load but endpoints depending on them will fail clearly
-    init_db, save_profile_to_db, get_profile_from_db = None, None, None
+    from ..db.user_profile_db import init_db, save_profile_to_db, get_profile_from_db
+except ImportError:
+    print("ERROR: Could not import from 'user_profile_db'.")
 
 # --- Path Setup ---
 # Get the directory containing the 'api' folder (assumes api.py is in 'src/api/')
@@ -39,7 +33,7 @@ if BACK_DIR not in sys.path:
     sys.path.insert(0, BACK_DIR)
     print(f"Added '{BACK_DIR}' to sys.path")
 
-# --- Import other local modules with error handling ---
+# --- Import other local modules wwith error handling ---
 try:
     # Assuming analyze_acne_data is in 'back/tsa/analyse_acne_corr.py'
     from tsa.analyse_acne_corr import analyze_acne_data
