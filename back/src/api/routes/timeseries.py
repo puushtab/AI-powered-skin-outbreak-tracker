@@ -3,6 +3,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from src.api.core.exceptions import DatabaseError
 from src.db.create_db import get_latest_timeseries_data, create_timeseries_table
+from src.correlation.analyse_acne_corr import analyze_acne_data
 import sqlite3
 import os
 from pathlib import Path
@@ -158,5 +159,36 @@ async def save_timeseries(entry: Dict):
             )
     except HTTPException:
         raise
+    except Exception as e:
+        raise DatabaseError(str(e))
+
+@router.get("/summary/{user_id}")
+async def get_summary(user_id: str):
+    """
+    Get a summary of acne severity trends and correlations for a specific user.
+    
+    Args:
+        user_id: The ID of the user to get the summary for
+        
+    Returns:
+        Dictionary containing:
+        - success: bool
+        - message: str
+        - summary: str
+        - correlations: dict
+    """
+    try:
+        db_dir = Path(__file__).parent.parent.parent / "db"
+        db_path = str(db_dir / "acne_tracker.db")
+        
+        # Get correlations and summary
+        correlations, summary = analyze_acne_data(db_path)
+        
+        return {
+            "success": True,
+            "message": "Summary generated successfully",
+            "summary": summary,
+            "correlations": correlations
+        }
     except Exception as e:
         raise DatabaseError(str(e)) 

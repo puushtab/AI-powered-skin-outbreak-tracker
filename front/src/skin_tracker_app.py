@@ -11,13 +11,17 @@ import json
 
 # --- Configuration ---
 # Streamlit page configuration
-st.set_page_config(page_title="AI-Powered Skin Outbreak Tracker", layout="wide")
+st.set_page_config(page_title="AI-Psowered Skin Outbreak Tracker", layout="wide")
 
 # Backend API URL - Update this to match your backend URL
 API_URL = "http://localhost:8000/api/v1"
 
 # Mock user ID (replace with actual authentication in a real application)
 USER_ID = "test_user_1"
+
+# Initialize session state for temporary lifestyle data
+if 'pending_lifestyle_data' not in st.session_state:
+    st.session_state.pending_lifestyle_data = None
 
 # --- Helper Function for Image Analysis and Display ---
 
@@ -71,6 +75,17 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             heatmap_b64 = result.get("heatmap_image_base64")
             detections = result.get("detections", [])
 
+            # If we have pending lifestyle data, save it now with the severity score
+            if st.session_state.pending_lifestyle_data is not None:
+                pending_data = st.session_state.pending_lifestyle_data
+                pending_data["acne_severity_score"] = score
+                
+                if save_lifestyle_data(pending_data):
+                    st.success("✅ Lifestyle data saved with severity score!")
+                    st.session_state.pending_lifestyle_data = None
+                else:
+                    st.error("Failed to save lifestyle data with severity score.")
+
             # Display Score and Metrics in columns
             col_score, col_metrics = st.columns(2)
             with col_score:
@@ -91,7 +106,7 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             with col1:
                 try:
                     original_image = Image.open(io.BytesIO(image_bytes))
-                    st.image(original_image, caption="Original Photo", use_column_width=True)
+                    st.image(original_image, caption="Original Photo", use_container_width=True)
                 except Exception as e:
                     st.error(f"Could not display original image: {e}")
 
@@ -102,7 +117,7 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
                         heatmap_bytes = base64.b64decode(heatmap_b64)
                         # Open bytes as image
                         heatmap_image = Image.open(io.BytesIO(heatmap_bytes))
-                        st.image(heatmap_image, caption="Severity Heatmap", use_column_width=True)
+                        st.image(heatmap_image, caption="Severity Heatmap", use_container_width=True)
                     except Exception as e:
                         st.error(f"Could not decode or display heatmap: {e}")
                         print(f"Base64 decode error details: {e}") # Log detailed error
@@ -191,6 +206,30 @@ def get_timeseries_data(user_id: str) -> dict:
         st.error(f"Failed to fetch timeseries data: {e}")
         return None
 
+def get_summary(user_id: str) -> dict:
+    """Fetch summary and correlations from the backend"""
+    try:
+        response = requests.get(f"{API_URL}/timeseries/summary/{user_id}")
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch summary: {e}")
+        return None
+
+def get_color_for_correlation(correlation: float) -> str:
+    """Return a color based on correlation value"""
+    if correlation > 0:
+        # Green gradient for positive correlations
+        intensity = min(255, int(255 * correlation))
+        return f"rgb({255 - intensity}, 255, {255 - intensity})"
+    elif correlation < 0:
+        # Red gradient for negative correlations
+        intensity = min(255, int(255 * abs(correlation)))
+        return f"rgb(255, {255 - intensity}, {255 - intensity})"
+    else:
+        # Yellow for zero correlation
+        return "rgb(255, 255, 0)"
+
 # --- Streamlit App Layout ---
 
 # Sidebar for navigation
@@ -239,10 +278,15 @@ if page == "Photo Upload":
 elif page == "Lifestyle Tracking":
     st.header("📝 Lifestyle Log")
     st.markdown("Track daily factors that might influence your skin health.")
+    
+    # Show pending data warning if exists
+    if st.session_state.pending_lifestyle_data is not None:
+        st.warning("⚠️ You have unsaved lifestyle data. Please analyze a photo to save it with a severity score.")
+    
     with st.form("lifestyle_form"):
         c1, c2 = st.columns(2)
         with c1:
-            date = st.date_input("Date", value=datetime.now().date()) # Use .date()
+            date = st.date_input("Date", value=datetime.now().date())
         with c2:
              sleep_hours = st.number_input("😴 Sleep Hours", min_value=0.0, max_value=24.0, step=0.5, value=7.5)
 
@@ -284,10 +328,9 @@ elif page == "Lifestyle Tracking":
                 "pollution": 0.0
             }
             
-            if save_lifestyle_data(lifestyle_data):
-                st.success("Lifestyle data successfully logged!")
-            else:
-                st.error("Failed to log lifestyle data. Please try again.")
+            # Store the data in session state instead of saving to database
+            st.session_state.pending_lifestyle_data = lifestyle_data
+            st.success("Lifestyle data recorded! Please analyze a photo to save it with a severity score.")
 
 # Dashboard Page
 elif page == "Dashboard":
@@ -321,6 +364,68 @@ elif page == "Dashboard":
             st.warning("No data available for visualization.")
     else:
         st.error("Failed to fetch timeseries data. Please try again later.")
+
+    # Display Summary
+    st.subheader("📈 Weekly Analysis")
+    summary_data = get_summary(USER_ID)
+    if summary_data and summary_data.get("success"):
+        st.markdown(f"**{summary_data.get('summary', 'No summary available')}**")
+        
+        # Display correlations with progress bars
+        correlations = summary_data.get('correlations', {})
+        if correlations:
+            st.markdown("**Correlation Scores:**")
+            for factor, score in correlations.items():
+                if not pd.isna(score):  # Only show valid correlations
+                    # Convert factor names to more readable format
+                    factor_name = factor.replace('_', ' ').title()
+                    
+                    # Create columns for the factor name and progress bar
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col1:
+                        st.write(factor_name)
+                    with col2:
+                        # Normalize score to 0-1 range for progress bar
+                        normalized_score = (score + 1) / 2
+                        color = get_color_for_correlation(score)
+                        
+                        # Add custom CSS for the progress bar styling
+                        st.markdown(
+                            f"""
+                            <style>
+                                div[data-testid="stProgress"] > div > div > div {{
+                                    background-color: {color};
+                                    border-radius: 10px;
+                                }}
+                                div[data-testid="stProgress"] > div > div {{
+                                    background-color: #f0f0f0;
+                                    border-radius: 10px;
+                                }}
+                            </style>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        
+                        # Create centered progress bar
+                        st.progress(normalized_score)
+                        
+                        # Add direction indicator
+                        direction = "↑ Progression" if score > 0 else "↓ Regression" if score < 0 else "→ Neutral"
+                        direction_color = "#2ecc71" if score > 0 else "#e74c3c" if score < 0 else "#f1c40f"
+                        st.markdown(
+                            f'<div style="text-align: center; color: {direction_color}; font-weight: bold;">{direction}</div>',
+                            unsafe_allow_html=True
+                        )
+                        
+                        # Display the correlation value
+                        st.markdown(
+                            f'<div style="text-align: center;">{score:.2f}</div>',
+                            unsafe_allow_html=True
+                        )
+                    with col3:
+                        st.write("")  # Empty column for spacing
+    else:
+        st.warning("No summary available. Please log more data to generate insights.")
 
     # Generate Skin Plan
     st.subheader("Generate Skin Plan")

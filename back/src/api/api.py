@@ -13,7 +13,7 @@ from typing import Optional, List, Dict # Cleaned up Optional import
 
 sys.path.append('..')
 from detection.score import analyze_skin_image
-from tsa import analyse_acne_corr
+from correlation import analyse_acne_corr
 # --- Rename 'profile.py' to 'user_profile.py' in your file system ---
 # Then change the import below:
 try:
@@ -36,7 +36,7 @@ if BACK_DIR not in sys.path:
 # --- Import other local modules wwith error handling ---
 try:
     # Assuming analyze_acne_data is in 'back/tsa/analyse_acne_corr.py'
-    from tsa.analyse_acne_corr import analyze_acne_data
+    from correlation.analyse_acne_corr import analyze_acne_data
 except ImportError as e:
     print(f"ERROR: Could not import 'analyze_acne_data' from 'tsa'. Check path and file. Details: {e}")
     analyze_acne_data = None
@@ -155,7 +155,7 @@ async def analyze_endpoint(): # Renamed function slightly
         raise HTTPException(status_code=501, detail="Correlation analysis feature not available.")
     try:
         # Database path relative to the 'back' directory
-        db_path = os.path.join(BACK_DIR, 'tsa', 'acne_tracker.db')
+        db_path = os.path.join(BACK_DIR, '', 'acne_tracker.db')
         print(f"Analyzing database at: {db_path}")
         if not os.path.exists(db_path):
              raise FileNotFoundError(f"Database file not found at required path: {db_path}")
