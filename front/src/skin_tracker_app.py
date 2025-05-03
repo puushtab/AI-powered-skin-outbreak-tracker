@@ -10,7 +10,7 @@ import mimetypes # Needed for guessing file Content-Type
 
 # --- Configuration ---
 # Streamlit page configuration
-st.set_page_config(page_title="AI-Powered Skin Outbreak Tracker", layout="wide")
+st.set_page_config(page_title="AI-Psowered Skin Outbreak Tracker", layout="wide")
 
 # Backend API URL - IMPORTANT: Ensure this points to your running FastAPI backend
 API_URL = "http://127.0.0.1:8000" # Default for local run, change if needed
