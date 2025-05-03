@@ -90,12 +90,12 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             col1, col2 = st.columns(2)
             with col1:
                 original_image = Image.open(io.BytesIO(image_bytes))
-                st.image(original_image, caption="Original Photo", use_container_width=True)
+                st.image(original_image, caption="Original Photo", use_container_width=True, channels="RGB")
             with col2:
                 if heatmap_b64:
                     heatmap_bytes = base64.b64decode(heatmap_b64)
                     heatmap_image = Image.open(io.BytesIO(heatmap_bytes))
-                    st.image(heatmap_image, caption="Severity Heatmap", use_container_width=True)
+                    st.image(heatmap_image, caption="Severity Heatmap", use_container_width=True, channels="RGB")
                 else:
                     st.info("Heatmap not generated.")
             st.subheader("Detected Conditions")
@@ -180,10 +180,46 @@ def get_color_for_correlation(correlation: float) -> str:
     else:
         return "rgb(255, 255, 0)"
 
+# --- Custom CSS for Skincare Theme ---
+st.markdown(
+    """
+    <style>
+    /* Center logo in sidebar */
+    [data-testid="stSidebar"] img {
+        display: block;
+        margin: 0 auto;
+        width: auto !important;
+        padding: 0;
+    }
+    /* Improve image quality */
+    img {
+        image-rendering: auto;
+        -webkit-font-smoothing: antialiased;
+    }
+    /* Ensure uploaded images maintain quality */
+    .stImage img {
+        object-fit: contain;
+        max-width: 100%;
+        height: auto;
+        image-rendering: auto;
+    }
+    /* Make sidebar title smaller and more compact */
+    .sidebar-title {
+        font-size: 1.2rem;
+        line-height: 1.2;
+        margin: 0;
+        padding: 0;
+        text-align: center;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # --- Streamlit App Layout ---
 
-st.sidebar.image("https://dytvr9ot2sszz.cloudfront.net/wp-content/uploads/2021/01/face-recognition-logo.png", width=100)
-st.sidebar.title("Skin Outbreak Tracker")
+st.sidebar.image("media/logo.png")
+st.sidebar.markdown('<p class="sidebar-title">AI-Powered Skin Outbreak Tracker</p>', unsafe_allow_html=True)
 page = st.sidebar.radio("Navigation", ["Photo Upload", "Lifestyle Tracking", "Dashboard", "User Profile"])
 
 # --- Page Implementations ---
@@ -357,7 +393,7 @@ elif page == "Dashboard":
                             """, unsafe_allow_html=True)
                         st.progress(normalized_score)
                         # Fixed correlation interpretation: positive = regression, negative = progression
-                        direction = "↑ Regression" if score > 0 else "↓ Progression" if score < 0 else "→ Neutral"
+                        direction = "↓ Regression" if score > 0 else "↑ Progression" if score < 0 else "→ Neutral"
                         direction_color = "#e74c3c" if score > 0 else "#2ecc71" if score < 0 else "#f1c40f"
                         st.markdown(f'<div style="text-align: center; color: {direction_color}; font-weight: bold;">{direction}</div>', unsafe_allow_html=True)
                         st.markdown(f'<div style="text-align: center;">{score:.2f}</div>', unsafe_allow_html=True)
@@ -475,4 +511,4 @@ elif page == "User Profile":
                 st.error("Failed to save profile. Please try again.")
 
 st.sidebar.markdown("---")
-st.sidebar.info("v0.2 - Skin Analysis App")
+st.sidebar.markdown("© 2025 AAGILITY | All rights reserved")
