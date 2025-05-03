@@ -3,7 +3,7 @@ from sqlite3 import Error as SQLiteError
 from datetime import datetime
 import uuid
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from pathlib import Path
 
 def create_timeseries_table(db_path="acne_tracker.db"):
@@ -134,16 +134,16 @@ def setup_databases(timeseries_db_path="acne_tracker.db", profiles_db_path="user
     except Exception as e:
         raise RuntimeError(f"Unexpected error during database setup: {e}")
 
-def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -> Optional[Dict]:
+def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -> Optional[List[Dict]]:
     """
-    Get the most recent timeseries data for a given user.
+    Get all timeseries data for a given user.
     
     Args:
         user_id: The ID of the user to fetch data for
         db_path: Path to the SQLite database file
         
     Returns:
-        Dictionary containing the latest timeseries data, or None if no data exists
+        List of dictionaries containing timeseries data, or None if no data exists
     """
     try:
         # Check if database file exists
@@ -154,7 +154,7 @@ def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Get the latest timeseries entry for the user
+        # Get all timeseries entries for the user
         query = """
         SELECT 
             timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
@@ -163,34 +163,36 @@ def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -
         FROM timeseries
         WHERE user_id = ?
         ORDER BY timestamp DESC
-        LIMIT 1
         """
         
         cursor.execute(query, (user_id,))
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
         
-        if not row:
+        if not rows:
             return None
             
-        # Convert row to dictionary
-        timeseries_data = {
-            "timestamp": row[0],
-            "acne_severity_score": row[1],
-            "diet_sugar": row[2],
-            "diet_dairy": row[3],
-            "diet_alcohol": row[4],
-            "sleep_hours": row[5],
-            "sleep_quality": row[6],
-            "menstrual_cycle_active": bool(row[7]),
-            "menstrual_cycle_day": row[8],
-            "latitude": row[9],
-            "longitude": row[10],
-            "humidity": row[11],
-            "pollution": row[12],
-            "stress": row[13],
-            "products_used": row[14],
-            "sunlight_exposure": row[15]
-        }
+        # Convert rows to list of dictionaries
+        timeseries_data = []
+        for row in rows:
+            entry = {
+                "timestamp": row[0],
+                "acne_severity_score": row[1],
+                "diet_sugar": row[2],
+                "diet_dairy": row[3],
+                "diet_alcohol": row[4],
+                "sleep_hours": row[5],
+                "sleep_quality": row[6],
+                "menstrual_cycle_active": bool(row[7]),
+                "menstrual_cycle_day": row[8],
+                "latitude": row[9],
+                "longitude": row[10],
+                "humidity": row[11],
+                "pollution": row[12],
+                "stress": row[13],
+                "products_used": row[14],
+                "sunlight_exposure": row[15]
+            }
+            timeseries_data.append(entry)
         
         return timeseries_data
         
