@@ -7,16 +7,17 @@ from PIL import Image
 import io
 import base64  # Needed for decoding heatmap
 import mimetypes # Needed for guessing file Content-Type
+import json
 
 # --- Configuration ---
 # Streamlit page configuration
 st.set_page_config(page_title="AI-Psowered Skin Outbreak Tracker", layout="wide")
 
-# Backend API URL - IMPORTANT: Ensure this points to your running FastAPI backend
-API_URL = "http://127.0.0.1:8000" # Default for local run, change if needed
+# Backend API URL - Update this to match your backend URL
+API_URL = "http://localhost:8000/api/v1"
 
 # Mock user ID (replace with actual authentication in a real application)
-USER_ID = "user_1"
+USER_ID = "test_user_1"
 
 # --- Helper Function for Image Analysis and Display ---
 
@@ -135,6 +136,60 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
         st.error(f"An unexpected error occurred in Streamlit: {e}")
         traceback.print_exc() # Print stack trace to Streamlit console for debugging
 
+# --- Helper Functions for API Calls ---
+
+def get_user_profile(user_id: str) -> dict:
+    """Fetch user profile from the backend"""
+    try:
+        response = requests.get(f"{API_URL}/profile/{user_id}")
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch user profile: {e}")
+        return None
+
+def save_user_profile(profile_data: dict) -> bool:
+    """Save user profile to the backend"""
+    try:
+        response = requests.post(f"{API_URL}/profile", json=profile_data)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to save user profile: {e}")
+        return False
+
+def save_lifestyle_data(lifestyle_data: dict) -> bool:
+    """Save lifestyle data to the backend"""
+    try:
+        response = requests.post(f"{API_URL}/timeseries", json=lifestyle_data)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to save lifestyle data: {e}")
+        return False
+
+def get_skin_plan(user_id: str, model_name: str = "medllama2") -> dict:
+    """Get skin plan from the backend"""
+    try:
+        response = requests.post(
+            f"{API_URL}/skin-plan/generate",
+            params={"user_id": user_id, "model_name": model_name}
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to generate skin plan: {e}")
+        return None
+
+def get_timeseries_data(user_id: str) -> dict:
+    """Get timeseries data from the backend"""
+    try:
+        response = requests.get(f"{API_URL}/timeseries/{user_id}")
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch timeseries data: {e}")
+        return None
 
 # --- Streamlit App Layout ---
 
@@ -212,79 +267,137 @@ elif page == "Lifestyle Tracking":
 
         submit = st.form_submit_button("Log Today's Data")
         if submit:
-            # Placeholder for lifestyle saving
-            st.success("Lifestyle data submitted (Backend endpoint needed for saving).")
             lifestyle_data = {
                 "user_id": USER_ID,
-                "date": date.isoformat(),
-                "sugar": diet_sugar,
-                "dairy": diet_dairy,
-                "sleep": sleep_hours,
+                "timestamp": date.isoformat(),
+                "sleep_hours": sleep_hours,
+                "diet_sugar": diet_sugar,
+                "diet_dairy": diet_dairy,
                 "stress": stress_level,
-                "product": product_used,
-                "sunlight": sunlight_hours,
-                "menstrual": menstrual_cycle,
-                "travel": travel_location,
-                "notes": notes
+                "products_used": product_used,
+                "sunlight_exposure": sunlight_hours,
+                "menstrual_cycle_active": menstrual_cycle,
+                "menstrual_cycle_day": 0,  # This should be calculated based on user input
+                "latitude": 0.0,  # These should be fetched from location
+                "longitude": 0.0,
+                "humidity": 0.0,  # These should be fetched from weather API
+                "pollution": 0.0
             }
-            print("Lifestyle Data to Send:", lifestyle_data) # For debugging
-            # try:
-            #     response = requests.post(f"{API_URL}/lifestyle/", json=lifestyle_data)
-            #     response.raise_for_status()
-            #     st.success("Lifestyle data successfully logged!")
-            # except requests.RequestException as e:
-            #     st.error(f"Failed to log data: {e}")
+            
+            if save_lifestyle_data(lifestyle_data):
+                st.success("Lifestyle data successfully logged!")
+            else:
+                st.error("Failed to log lifestyle data. Please try again.")
 
 # Dashboard Page
 elif page == "Dashboard":
     st.header("📊 Dashboard")
-    st.warning("Dashboard functionality requires backend implementation to fetch and correlate lifestyle data with analysis results.")
-    st.markdown("This page will display charts showing trends and potential correlations between lifestyle factors and skin severity scores over time.")
+    
+    # Fetch timeseries data
+    timeseries_data = get_timeseries_data(USER_ID)
+    if timeseries_data and timeseries_data.get("success"):
+        data = timeseries_data.get("data", [])
+        if data:
+            df = pd.DataFrame(data)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Severity Trend
+            st.subheader("Severity Trend")
+            fig_trend = px.line(df, x="timestamp", y="acne_severity_score", title="Skin Severity Over Time")
+            st.plotly_chart(fig_trend, use_container_width=True)
 
-    # --- Placeholder for future dashboard ---
-    st.subheader("Severity Trend (Placeholder)")
-    # Example data structure you might fetch from backend
-    example_data = {
-        'date': pd.to_datetime(['2024-05-01', '2024-05-02', '2024-05-03', '2024-05-04']),
-        'severity': [35.2, 40.1, 38.5, 45.8],
-        'dairy': [2, 5, 3, 6],
-        'sleep': [7.5, 6.0, 8.0, 5.5]
-    }
-    df_placeholder = pd.DataFrame(example_data)
-    fig_trend = px.line(df_placeholder, x="date", y="severity", title="Skin Severity Over Time (Example)")
-    st.plotly_chart(fig_trend, use_container_width=True)
+            # Correlations
+            st.subheader("Correlations")
+            col_d, col_s = st.columns(2)
+            with col_d:
+                fig_dairy = px.scatter(df, x="diet_dairy", y="acne_severity_score", 
+                                     title="Dairy Intake vs. Severity", trendline="ols")
+                st.plotly_chart(fig_dairy, use_container_width=True)
+            with col_s:
+                fig_sleep = px.scatter(df, x="sleep_hours", y="acne_severity_score", 
+                                     title="Sleep Hours vs. Severity", trendline="ols")
+                st.plotly_chart(fig_sleep, use_container_width=True)
+        else:
+            st.warning("No data available for visualization.")
+    else:
+        st.error("Failed to fetch timeseries data. Please try again later.")
 
-    st.subheader("Correlations (Placeholder)")
-    col_d, col_s = st.columns(2)
-    with col_d:
-        fig_dairy = px.scatter(df_placeholder, x="dairy", y="severity", title="Dairy Intake vs. Severity (Example)", trendline="ols")
-        st.plotly_chart(fig_dairy, use_container_width=True)
-    with col_s:
-        fig_sleep = px.scatter(df_placeholder, x="sleep", y="severity", title="Sleep Hours vs. Severity (Example)", trendline="ols")
-        st.plotly_chart(fig_sleep, use_container_width=True)
-    # --- End Placeholder ---
-
-    # Add more complex correlation logic and insights once backend provides data
+    # Generate Skin Plan
+    st.subheader("Generate Skin Plan")
+    model_name = st.selectbox("Select Model", ["medllama2", "llama2"])
+    if st.button("Generate Plan"):
+        plan = get_skin_plan(USER_ID, model_name)
+        if plan and plan.get("success"):
+            plan_data = plan.get("data", {})
+            
+            # Display Treatment Plan
+            st.subheader("Treatment Plan")
+            for treatment in plan_data.get("treatment_plan", []):
+                st.write(f"**{treatment['date']}**: {treatment['treatment']}")
+            
+            # Display Recommendations
+            st.subheader("Recommendations")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Lifestyle Advice**")
+                for advice in plan_data.get("lifestyle_advice", []):
+                    st.write(f"- {advice}")
+                
+                st.write("**Diet Recommendations**")
+                for rec in plan_data.get("diet_recommendations", []):
+                    st.write(f"- {rec}")
+            
+            with col2:
+                st.write("**Sleep Recommendations**")
+                for rec in plan_data.get("sleep_recommendations", []):
+                    st.write(f"- {rec}")
+                
+                st.write("**Environmental Factors**")
+                for factor in plan_data.get("environmental_factors", []):
+                    st.write(f"- {factor}")
+        else:
+            st.error("Failed to generate skin plan. Please try again.")
 
 # User Profile Page
 elif page == "User Profile":
     st.header("👤 User Profile")
-    st.warning("User profile saving and loading requires backend implementation.")
+    
+    # Fetch existing profile
+    profile = get_user_profile(USER_ID)
+    if profile and profile.get("success"):
+        profile_data = profile.get("data", {})
+    else:
+        profile_data = {}
+    
     with st.form("profile_form"):
-        st.text_input("Full Name", placeholder="Jane Doe")
-        st.date_input("Date of Birth", min_value=datetime(1920, 1, 1), value=datetime(2000,1,1))
+        name = st.text_input("Full Name", value=profile_data.get("name", ""))
+        dob = st.date_input("Date of Birth", 
+                          value=datetime.strptime(profile_data.get("dob", "2000-01-01"), "%Y-%m-%d").date())
         c1, c2 = st.columns(2)
         with c1:
-             st.number_input("Height (cm)", min_value=100, max_value=250, value=165)
+             height = st.number_input("Height (cm)", min_value=100, max_value=250, 
+                                    value=profile_data.get("height", 165))
         with c2:
-             st.number_input("Weight (kg)", min_value=30, max_value=200, value=60)
-        st.selectbox("Gender (Optional)", ["Prefer not to say", "Female", "Male", "Other"])
-        st.text_area("Known Allergies or Skin Sensitivities")
+             weight = st.number_input("Weight (kg)", min_value=30, max_value=200, 
+                                    value=profile_data.get("weight", 60))
+        gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], 
+                            index=["Male", "Female", "Other", "Prefer not to say"].index(profile_data.get("gender", "Prefer not to say")))
+        
         submit = st.form_submit_button("Save Profile")
         if submit:
-            st.success("Profile submitted (Backend endpoint needed for saving).")
-            # profile_data = { ... }
-            # try: requests.post(...) ...
+            profile_data = {
+                "user_id": USER_ID,
+                "name": name,
+                "dob": dob.isoformat(),
+                "height": height,
+                "weight": weight,
+                "gender": gender
+            }
+            
+            if save_user_profile(profile_data):
+                st.success("Profile saved successfully!")
+            else:
+                st.error("Failed to save profile. Please try again.")
 
 
 # Footer in Sidebar
