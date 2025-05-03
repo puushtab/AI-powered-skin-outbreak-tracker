@@ -12,7 +12,7 @@ from ultralytics import YOLO
 
 MODEL_WEIGHTS_PATH = r'best.pt'     
 TEST_IMAGE_PATH = r'final_test.jpg' 
-CONFIDENCE_THRESHOLD = 0.3                     
+CONFIDENCE_THRESHOLD = 0.3                    
 OUTPUT_PATH = r'output.jpg' 
 NO_DISPLAY = False                               
 
@@ -34,8 +34,8 @@ GAUSSIAN_SPREAD_SIGMA = 40     # Controls heatmap spread radius
 SECONDARY_BLUR_KERNEL_SIZE = 0 # Optional secondary blur (0 to disable)
 
 # Score calculation weights
-AREA_WEIGHT = 0.5
-INTENSITY_WEIGHT = 0.7
+AREA_WEIGHT = 0.3
+INTENSITY_WEIGHT = 0.6
 SCORE_RANGE = (0, 100)
 # --- End Configuration ---
 
