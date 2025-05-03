@@ -46,7 +46,8 @@ def process_image_and_display_results(image_bytes, filename, api_url=API_URL):
             st.error(f"Unsupported file type '{content_type}'. Please upload JPG, PNG, or BMP.")
             return
         files = {"file": (filename, image_bytes, content_type)}
-        detect_endpoint = f"{api_url}/detect/"
+        detect_endpoint = f"{api_url}/detect"
+        print(f"Sending request to {detect_endpoint} with Content-Type: {content_type}")
         response = requests.post(detect_endpoint, files=files, timeout=120)
         response.raise_for_status()
         result = response.json()

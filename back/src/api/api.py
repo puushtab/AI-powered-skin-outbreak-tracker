@@ -171,16 +171,19 @@ async def analyze_endpoint(): # Renamed function slightly
         raise HTTPException(status_code=500, detail=f"Failed during correlation analysis: {str(e)}")
 
 
-@app.post("/detect/", response_model=DetectionResponse, summary="Detect skin conditions and score severity")
+@app.post("/detect", response_model=DetectionResponse, summary="Detect skin conditions and score severity")
 async def detect_skin_conditions(file: UploadFile = File(..., description="Image file for analysis (JPEG, PNG, BMP)")):
     """
     Accepts an image file, performs skin condition detection using a YOLOv8 model,
-    calculates a severity score, generates a heatmap, and returns the results.
+    calculates a severity score (using AcneAI formula based logic),
+    generates a heatmap, and returns the results.
     """
+    # Check if the core analysis function is available (due to import errors, etc.)
     if analyze_skin_image is None:
-         raise HTTPException(status_code=501, detail="Detection analysis function not available or not loaded.")
+         print("CRITICAL: analyze_skin_image function is None, cannot process request.")
+         raise HTTPException(status_code=501, detail="Detection analysis feature is not available.")
 
-    # Validate file type
+    # --- 1. Validate Input File Type ---
     allowed_types = ["image/jpeg", "image/png", "image/bmp"]
     if file.content_type not in allowed_types:
         print(f"Rejected file type: {file.content_type} for file: {file.filename}")
@@ -189,83 +192,98 @@ async def detect_skin_conditions(file: UploadFile = File(..., description="Image
             detail=f"Invalid file type '{file.content_type}'. Please upload JPG, PNG, or BMP."
         )
 
-    temp_image_path = None # Ensure variable exists for finally block
+    temp_image_path = None # Initialize for finally block
     try:
-        # Create temp file using a context manager for better cleanup potential
+        # --- 2. Save Uploaded File Temporarily ---
+        # Using delete=False and manual deletion in finally is necessary
+        # because analyze_skin_image needs the path to exist when called.
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_image_file:
             content = await file.read()
             if not content:
                  raise HTTPException(status_code=400, detail="Received empty file content.")
             temp_image_file.write(content)
-            temp_image_path = temp_image_file.name # Store path for use after 'with' block closes file handle
+            temp_image_path = temp_image_file.name
         print(f"Temporary image saved to: {temp_image_path}")
 
-        # Verify model exists just before use
-        if not os.path.exists(MODEL_WEIGHTS_PATH):
-             # Log the error server side
-             print(f"CRITICAL ERROR: Model file missing at analysis time: {MODEL_WEIGHTS_PATH}")
-             # Raise 503 Service Unavailable, as the service is configured incorrectly
-             raise HTTPException(status_code=503, detail=f"Model file is currently unavailable.")
+        # --- 2.1 Resize Image to 640x640 ---
+        img = cv2.imread(temp_image_path)
+        if img is None:
+            raise HTTPException(status_code=400, detail="Could not read the uploaded image.")
+        resized_img = cv2.resize(img, (640, 640))
+        cv2.imwrite(temp_image_path, resized_img)
+        print("Image resized to 640x640")
 
-        # --- Call the core analysis function ---
+        # --- 3. Verify Model File Exists ---
+        # Check just before potentially long analysis step
+        if not os.path.exists(MODEL_WEIGHTS_PATH):
+             print(f"CRITICAL ERROR: Model file missing at analysis time: {MODEL_WEIGHTS_PATH}")
+             raise HTTPException(status_code=503, detail="Required analysis model file is currently unavailable.")
+
+        # --- 4. Call Analysis Function ---
+        # This now uses the version of analyze_skin_image calling calculate_acneai_score
         analysis_results = analyze_skin_image(
             model_path=MODEL_WEIGHTS_PATH,
             image_path=temp_image_path
-            # Add parameter overrides here if you want to pass them from the request
-            # e.g., conf_threshold=request_body.conf_threshold
+            # Pass other parameters like conf_threshold if needed:
+            # conf_threshold=0.3,
+            # severity_map=CUSTOM_MAP, # etc.
         )
 
     except HTTPException as e:
-        # Re-raise specific HTTP exceptions we might have raised (like 400, 415, 503)
+        # Re-raise specific HTTP exceptions (e.g., 400, 415, 503)
         raise e
     except Exception as e:
-        # Catch other unexpected errors during file handling or analysis
+        # Catch unexpected errors during file/analysis
         print(f"Error during file handling or analysis call for {file.filename}: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error processing image.") # Keep detail generic for client
+        # Return a generic 500 error to the client
+        raise HTTPException(status_code=500, detail="An error occurred while processing the image.")
     finally:
-        # --- Cleanup ---
-        # Attempt to delete the temporary file if path was assigned
+        # --- 5. Cleanup Temporary File ---
         if temp_image_path and os.path.exists(temp_image_path):
             try:
                 os.remove(temp_image_path)
                 print(f"Temporary image deleted: {temp_image_path}")
             except OSError as e:
-                 # Log error if deletion fails, but don't crash request
-                 print(f"Error deleting temporary file {temp_image_path}: {e}")
+                 print(f"Error deleting temporary file {temp_image_path}: {e}") # Log cleanup error but don't fail request
 
-    # --- Process Analysis Results ---
+    # --- 6. Process Analysis Results ---
     if not analysis_results or not analysis_results.get('success'):
-        error_message = analysis_results.get('message', 'Unknown analysis error') if analysis_results else "Analysis function returned None or invalid data"
-        status_code = 500 # Internal server error is appropriate if analysis function fails
-        print(f"Analysis function failed or returned unsuccessful status: {error_message}")
+        error_message = analysis_results.get('message', 'Unknown analysis error') if analysis_results else "Analysis function returned invalid data"
+        status_code = 500 # Default to Internal Server Error if analysis function fails
+        if "not found" in error_message.lower():
+            status_code = 404 # Indicate resource issue within analysis
+        print(f"Analysis function failed or returned unsuccessful: {error_message}")
         raise HTTPException(status_code=status_code, detail=error_message)
 
-    # Encode heatmap image to Base64
+    # --- 7. Encode Heatmap Image ---
     heatmap_base64 = None
     heatmap_data = analysis_results.get('heatmap_overlay_bgr')
     if heatmap_data is not None and isinstance(heatmap_data, np.ndarray):
         try:
-            success, buffer = cv2.imencode('.png', heatmap_data) # Encode to PNG format
+            success, buffer = cv2.imencode('.png', heatmap_data) # Use PNG for lossless overlay
             if success:
                 heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
                 print("Heatmap image successfully encoded to Base64.")
             else:
-                 print("Error: cv2.imencode failed for heatmap (returned False).")
+                 print("Warning: cv2.imencode failed for heatmap.") # Log warning
         except Exception as e:
-            print(f"Error encoding heatmap image to Base64: {e}")
+            print(f"Error encoding heatmap image to Base64: {e}") # Log error
             traceback.print_exc()
-            # Continue without heatmap
+            # Continue without heatmap if encoding fails
 
-    # --- Prepare and Return Success Response ---
+    # --- 8. Prepare and Return Successful Response ---
+    # Construct the response using the Pydantic model
     response_data = DetectionResponse(
         success=True,
         message=analysis_results.get('message', 'Analysis successful.'),
+        # Retrieve score and metrics calculated by analyze_skin_image
         severity_score=analysis_results.get('severity_score'),
         percentage_area=analysis_results.get('percentage_area'),
         average_intensity=analysis_results.get('average_intensity'),
         lesion_count=analysis_results.get('lesion_count'),
-        heatmap_image_base64=heatmap_base64,
+        heatmap_image_base64=heatmap_base64, # Include encoded heatmap string
+        # Convert list of detection dicts to list of Pydantic models
         detections=[DetectionInfo(**det) for det in analysis_results.get('detections', [])],
         model_classes=analysis_results.get('model_classes')
     )
