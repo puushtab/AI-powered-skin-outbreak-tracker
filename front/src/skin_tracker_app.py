@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 from PIL import Image
 import io
+import base64
 
 # Streamlit page configuration
 st.set_page_config(page_title="AI-Powered Skin Outbreak Tracker", layout="wide")
@@ -12,12 +13,36 @@ st.set_page_config(page_title="AI-Powered Skin Outbreak Tracker", layout="wide")
 # Backend API URL
 API_URL = "http://localhost:8000"
 
+# Mock user ID (replace with auth in production)
+USER_ID = "user_1"
+
+# Function to fetch and display diagnosis and LLM suggestion for a given plot type
+def display_diagnosis_and_suggestion(plot_type):
+    st.subheader(f"Diagnosis for {plot_type.replace('_', ' ')}")
+    try:
+        response = requests.get(f"{API_URL}/diagnosis/{plot_type}/{USER_ID}")
+        if response.status_code == 200:
+            diagnosis = response.json().get("diagnosis", "No diagnosis available.")
+            st.write(diagnosis)
+        else:
+            st.write("Unable to fetch diagnosis.")
+    except requests.RequestException as e:
+        st.error(f"Failed to fetch diagnosis: {e}")
+    
+    st.subheader(f"LLM Suggestion for {plot_type.replace('_', ' ')}")
+    try:
+        response = requests.get(f"{API_URL}/suggestion/{plot_type}/{USER_ID}")
+        if response.status_code == 200:
+            suggestion = response.json().get("suggestion", "No suggestion available.")
+            st.write(suggestion)
+        else:
+            st.write("Unable to fetch suggestion.")
+    except requests.RequestException as e:
+        st.error(f"Failed to fetch suggestion: {e}")
+
 # Sidebar for navigation
 st.sidebar.title("Skin Outbreak Tracker")
 page = st.sidebar.radio("Navigate", ["Profile", "Photo Upload", "Lifestyle Tracking", "Dashboard"])
-
-# Mock user ID (replace with auth in production)
-USER_ID = "user_1"
 
 # Profile Page
 if page == "Profile":
@@ -71,11 +96,22 @@ elif page == "Photo Upload":
             image.save(img_byte_arr, format=image.format)
             img_byte_arr = img_byte_arr.getvalue()
             try:
-                response = requests.post(f"{API_URL}/photo/", files={"file": (uploaded_file.name, img_byte_arr)})
+                response = requests.post(f"{API_URL}/detect/", files={"file": (uploaded_file.name, img_byte_arr)})
                 response.raise_for_status()
                 result = response.json()
                 st.write(f"Severity Score: {result['severity_score']}/100")
-                st.write("Heatmap overlay (to be implemented)")
+                if result.get('percentage_area') is not None:
+                    st.write(f"Percentage Area Affected: {result['percentage_area']}%")
+                if result.get('average_intensity') is not None:
+                    st.write(f"Average Intensity: {result['average_intensity']}")
+                if result.get('lesion_count') is not None:
+                    st.write(f"Lesion Count: {result['lesion_count']}")
+                if result.get('heatmap_image_base64'):
+                    heatmap_bytes = base64.b64decode(result['heatmap_image_base64'])
+                    heatmap_image = Image.open(io.BytesIO(heatmap_bytes))
+                    st.image(heatmap_image, caption="Heatmap Overlay", use_column_width=True)
+                else:
+                    st.write("No heatmap available.")
             except requests.RequestException as e:
                 st.error(f"Failed to process photo: {e}")
     
@@ -89,10 +125,22 @@ elif page == "Photo Upload":
             image.save(img_byte_arr, format="PNG")
             img_byte_arr = img_byte_arr.getvalue()
             try:
-                response = requests.post(f"{API_URL}/photo/", files={"file": ("photo.png", img_byte_arr)})
+                response = requests.post(f"{API_URL}/detect/", files={"file": ("photo.png", img_byte_arr)})
                 response.raise_for_status()
                 result = response.json()
                 st.write(f"Severity Score: {result['severity_score']}/100")
+                if result.get('percentage_area') is not None:
+                    st.write(f"Percentage Area Affected: {result['percentage_area']}%")
+                if result.get('average_intensity') is not None:
+                    st.write(f"Average Intensity: {result['average_intensity']}")
+                if result.get('lesion_count') is not None:
+                    st.write(f"Lesion Count: {result['lesion_count']}")
+                if result.get('heatmap_image_base64'):
+                    heatmap_bytes = base64.b64decode(result['heatmap_image_base64'])
+                    heatmap_image = Image.open(io.BytesIO(heatmap_bytes))
+                    st.image(heatmap_image, caption="Heatmap Overlay", use_column_width=True)
+                else:
+                    st.write("No heatmap available.")
             except requests.RequestException as e:
                 st.error(f"Failed to process photo: {e}")
 
@@ -129,6 +177,23 @@ elif page == "Lifestyle Tracking":
             except requests.RequestException as e:
                 st.error(f"Failed to log data: {e}")
 
+    # Fetches recent lifestyle entries to show a summary of the last 5 logs
+    try:
+        response = requests.get(f"{API_URL}/lifestyle/recent/{USER_ID}?limit=5")
+        if response.status_code == 200:
+            recent_logs = response.json()
+            st.subheader("Recent Lifestyle Logs")
+            if recent_logs:
+                recent_df = pd.DataFrame(recent_logs)
+                recent_df["date"] = pd.to_datetime(recent_df["date"])
+                st.dataframe(recent_df[["date", "sugar", "dairy", "sleep", "stress"]].sort_values(by="date", ascending=False))
+            else:
+                st.write("No recent lifestyle logs found.")
+        else:
+            st.write("Unable to fetch recent logs.")
+    except requests.RequestException as e:
+        st.error(f"Failed to fetch recent logs: {e}")
+
 # Dashboard Page
 elif page == "Dashboard":
     st.header("Skin Health Dashboard")
@@ -143,14 +208,17 @@ elif page == "Dashboard":
             # Severity over time
             fig1 = px.line(df, x="date", y="severity", title="Skin Severity Over Time")
             st.plotly_chart(fig1, use_container_width=True)
+            display_diagnosis_and_suggestion("severity_over_time")
             
             # Dairy vs Severity
             fig2 = px.scatter(df, x="dairy", y="severity", title="Dairy Intake vs. Severity", trendline="ols")
             st.plotly_chart(fig2, use_container_width=True)
+            display_diagnosis_and_suggestion("dairy_vs_severity")
             
             # Sleep vs Severity
             fig3 = px.scatter(df, x="sleep", y="severity", title="Sleep Hours vs. Severity", trendline="ols")
             st.plotly_chart(fig3, use_container_width=True)
+            display_diagnosis_and_suggestion("sleep_vs_severity")
             
             # Insights
             st.subheader("Insights")
@@ -158,6 +226,22 @@ elif page == "Dashboard":
                 st.write("High dairy intake may be associated with increased skin severity.")
             if df["sleep"].corr(df["severity"]) < -0.5:
                 st.write("More sleep may be associated with reduced skin severity.")
+
+            # Fetches aggregated insights from a new endpoint
+            try:
+                response = requests.get(f"{API_URL}/lifestyle/insights/{USER_ID}")
+                if response.status_code == 200:
+                    insights = response.json()
+                    st.subheader("Aggregated Insights")
+                    if insights:
+                        st.write(f"Average severity with high dairy (>7): {insights.get('avg_severity_high_dairy', 'N/A')}")
+                        st.write(f"Average severity with low sleep (<6 hours): {insights.get('avg_severity_low_sleep', 'N/A')}")
+                    else:
+                        st.write("No aggregated insights available.")
+                else:
+                    st.write("Unable to fetch insights.")
+            except requests.RequestException as e:
+                st.error(f"Failed to fetch insights: {e}")
         else:
             st.write("No data available. Please log lifestyle data or upload photos.")
     except requests.RequestException as e:
