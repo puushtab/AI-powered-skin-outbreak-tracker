@@ -8,6 +8,7 @@ import io
 import base64  # Needed for decoding heatmap
 import mimetypes # Needed for guessing file Content-Type
 import json
+import time
 
 # --- Configuration ---
 # Streamlit page configuration
@@ -175,13 +176,33 @@ def save_user_profile(profile_data: dict) -> bool:
 
 def save_lifestyle_data(lifestyle_data: dict) -> bool:
     """Save lifestyle data to the backend"""
-    try:
-        response = requests.post(f"{API_URL}/timeseries", json=lifestyle_data)
-        response.raise_for_status()
-        return True
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to save lifestyle data: {e}")
-        return False
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                f"{API_URL}/timeseries",
+                json=lifestyle_data,
+                timeout=10  # Add timeout
+            )
+            response.raise_for_status()
+            return True
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries - 1:
+                print(f"Connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                time.sleep(retry_delay)
+                continue
+            else:
+                print(f"Failed to connect after {max_retries} attempts: {e}")
+                return False
+        except requests.exceptions.RequestException as e:
+            print(f"Request error: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return False
+    return False
 
 def get_skin_plan(user_id: str, model_name: str = "medllama2") -> dict:
     """Get skin plan from the backend"""
@@ -219,13 +240,13 @@ def get_summary(user_id: str) -> dict:
 def get_color_for_correlation(correlation: float) -> str:
     """Return a color based on correlation value"""
     if correlation > 0:
-        # Green gradient for positive correlations
+        # Red gradient for positive correlations (regression)
         intensity = min(255, int(255 * correlation))
-        return f"rgb({255 - intensity}, 255, {255 - intensity})"
-    elif correlation < 0:
-        # Red gradient for negative correlations
-        intensity = min(255, int(255 * abs(correlation)))
         return f"rgb(255, {255 - intensity}, {255 - intensity})"
+    elif correlation < 0:
+        # Green gradient for negative correlations (progression)
+        intensity = min(255, int(255 * abs(correlation)))
+        return f"rgb({255 - intensity}, 255, {255 - intensity})"
     else:
         # Yellow for zero correlation
         return "rgb(255, 255, 0)"
@@ -309,7 +330,7 @@ elif page == "Lifestyle Tracking":
         travel_location = st.text_input("✈️ Travel Location (City, optional)")
         notes = st.text_area("📝 Additional Notes (optional)")
 
-        submit = st.form_submit_button("Log Today's Data")
+        submit = st.form_submit_button("💾 Save Lifestyle")
         if submit:
             lifestyle_data = {
                 "user_id": USER_ID,
@@ -330,7 +351,7 @@ elif page == "Lifestyle Tracking":
             
             # Store the data in session state instead of saving to database
             st.session_state.pending_lifestyle_data = lifestyle_data
-            st.success("Lifestyle data recorded! Please analyze a photo to save it with a severity score.")
+            st.success("✅ Lifestyle data saved! Please analyze a photo to complete the entry.")
 
 # Dashboard Page
 elif page == "Dashboard":
@@ -348,18 +369,6 @@ elif page == "Dashboard":
             st.subheader("Severity Trend")
             fig_trend = px.line(df, x="timestamp", y="acne_severity_score", title="Skin Severity Over Time")
             st.plotly_chart(fig_trend, use_container_width=True)
-
-            # Correlations
-            st.subheader("Correlations")
-            col_d, col_s = st.columns(2)
-            with col_d:
-                fig_dairy = px.scatter(df, x="diet_dairy", y="acne_severity_score", 
-                                     title="Dairy Intake vs. Severity", trendline="ols")
-                st.plotly_chart(fig_dairy, use_container_width=True)
-            with col_s:
-                fig_sleep = px.scatter(df, x="sleep_hours", y="acne_severity_score", 
-                                     title="Sleep Hours vs. Severity", trendline="ols")
-                st.plotly_chart(fig_sleep, use_container_width=True)
         else:
             st.warning("No data available for visualization.")
     else:
@@ -376,7 +385,7 @@ elif page == "Dashboard":
         if correlations:
             st.markdown("**Correlation Scores:**")
             for factor, score in correlations.items():
-                if not pd.isna(score):  # Only show valid correlations
+                if score is not None:  # Only show valid correlations
                     # Convert factor names to more readable format
                     factor_name = factor.replace('_', ' ').title()
                     
@@ -409,9 +418,9 @@ elif page == "Dashboard":
                         # Create centered progress bar
                         st.progress(normalized_score)
                         
-                        # Add direction indicator
-                        direction = "↑ Progression" if score > 0 else "↓ Regression" if score < 0 else "→ Neutral"
-                        direction_color = "#2ecc71" if score > 0 else "#e74c3c" if score < 0 else "#f1c40f"
+                        # Add direction indicator (reversed interpretation)
+                        direction = "↑ Regression" if score > 0 else "↓ Progression" if score < 0 else "→ Neutral"
+                        direction_color = "#e74c3c" if score > 0 else "#2ecc71" if score < 0 else "#f1c40f"
                         st.markdown(
                             f'<div style="text-align: center; color: {direction_color}; font-weight: bold;">{direction}</div>',
                             unsafe_allow_html=True
