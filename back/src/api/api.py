@@ -81,3 +81,12 @@ async def analyze():
         return {"correlations": correlations, "summary": summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "api:app",     # module path to your FastAPI app
+        host="0.0.0.0",         # listen on all interfaces
+        port=8000,              # or any port you prefer
+        reload=True            # auto-reload on code changes
+    )
