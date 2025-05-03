@@ -1,0 +1,9 @@
+pandas==2.2.3 
+scipy==1.14.1 
+numpy==2.1.2
+
+fastapi
+uvicorn
+pydantic 
+sqlite3 
+python-multipart
