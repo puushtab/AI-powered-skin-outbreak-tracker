@@ -3,7 +3,7 @@ from sqlite3 import Error as SQLiteError
 from datetime import datetime
 import uuid
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from pathlib import Path
 
 def create_timeseries_table(db_path="acne_tracker.db"):
@@ -16,9 +16,6 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         # Connect to SQLite
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        
-        # Drop existing table if it exists
-        cursor.execute("DROP TABLE IF EXISTS timeseries")
         
         # Create timeseries table with optional fields
         create_table_sql = """
@@ -44,52 +41,18 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         );
         """
         cursor.execute(create_table_sql)
-        
-        # Insert sample data
-        sample_data = [
-            (
-                str(uuid.uuid4()),
-                "test_user_1",
-                datetime.now().isoformat(),
-                75.0,
-                20.0,
-                15.0,
-                0.0,
-                7.0,
-                "good",
-                0,
-                0,
-                48.8566,
-                2.3522,
-                60.0,
-                30.0,
-                5.0,
-                "cleanser,moisturizer",
-                2.0
-            )
-        ]
-        
-        insert_sql = """
-        INSERT INTO timeseries (
-            id, user_id, timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
-            sleep_hours, sleep_quality, menstrual_cycle_active, menstrual_cycle_day,
-            latitude, longitude, humidity, pollution, stress, products_used, sunlight_exposure
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        
-        try:
-            cursor.executemany(insert_sql, sample_data)
-            conn.commit()
-            print(f"Inserted {len(sample_data)} rows into 'timeseries' table in '{db_path}'.")
-        except sqlite3.IntegrityError as e:
-            print(f"Warning: Integrity error while inserting sample data into 'timeseries': {e}")
+        conn.commit()
+        print(f"Created/verified 'timeseries' table in '{db_path}'.")
         
     except SQLiteError as e:
-        raise SQLiteError(f"Failed to create or modify 'timeseries' table in '{db_path}': {e}")
+        print(f"SQLite error while creating 'timeseries' table: {e}")
+        raise
     except PermissionError as e:
-        raise PermissionError(e)
+        print(f"Permission error while creating 'timeseries' table: {e}")
+        raise
     except Exception as e:
-        raise RuntimeError(f"Unexpected error while setting up 'timeseries' table: {e}")
+        print(f"Unexpected error while creating 'timeseries' table: {e}")
+        raise
     finally:
         if 'conn' in locals():
             conn.close()
@@ -171,16 +134,16 @@ def setup_databases(timeseries_db_path="acne_tracker.db", profiles_db_path="user
     except Exception as e:
         raise RuntimeError(f"Unexpected error during database setup: {e}")
 
-def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -> Optional[Dict]:
+def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -> List[Dict]:
     """
-    Get the most recent timeseries data for a given user.
+    Get all timeseries data for a given user.
     
     Args:
         user_id: The ID of the user to fetch data for
         db_path: Path to the SQLite database file
         
     Returns:
-        Dictionary containing the latest timeseries data, or None if no data exists
+        List of dictionaries containing all timeseries data for the user
     """
     try:
         # Check if database file exists
@@ -191,43 +154,46 @@ def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Get the latest timeseries entry for the user
+        # Get all timeseries entries for the user
         query = """
         SELECT 
-            timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
+            id, timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
             sleep_hours, sleep_quality, menstrual_cycle_active, menstrual_cycle_day,
             latitude, longitude, humidity, pollution, stress, products_used, sunlight_exposure
         FROM timeseries
         WHERE user_id = ?
-        ORDER BY timestamp DESC
-        LIMIT 1
+        ORDER BY timestamp ASC
         """
         
         cursor.execute(query, (user_id,))
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
         
-        if not row:
-            return None
+        if not rows:
+            return []
             
-        # Convert row to dictionary
-        timeseries_data = {
-            "timestamp": row[0],
-            "acne_severity_score": row[1],
-            "diet_sugar": row[2],
-            "diet_dairy": row[3],
-            "diet_alcohol": row[4],
-            "sleep_hours": row[5],
-            "sleep_quality": row[6],
-            "menstrual_cycle_active": bool(row[7]),
-            "menstrual_cycle_day": row[8],
-            "latitude": row[9],
-            "longitude": row[10],
-            "humidity": row[11],
-            "pollution": row[12],
-            "stress": row[13],
-            "products_used": row[14],
-            "sunlight_exposure": row[15]
-        }
+        # Convert rows to list of dictionaries
+        timeseries_data = []
+        for row in rows:
+            entry = {
+                "id": row[0],
+                "timestamp": row[1],
+                "acne_severity_score": row[2],
+                "diet_sugar": row[3],
+                "diet_dairy": row[4],
+                "diet_alcohol": row[5],
+                "sleep_hours": row[6],
+                "sleep_quality": row[7],
+                "menstrual_cycle_active": bool(row[8]),
+                "menstrual_cycle_day": row[9],
+                "latitude": row[10],
+                "longitude": row[11],
+                "humidity": row[12],
+                "pollution": row[13],
+                "stress": row[14],
+                "products_used": row[15],
+                "sunlight_exposure": row[16]
+            }
+            timeseries_data.append(entry)
         
         return timeseries_data
         

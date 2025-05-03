@@ -21,6 +21,19 @@ setx HF_TOKEN "your_hf_access_token"
 
 ```
 
+### Product Search API
+
+To enable product recommendations, you need a [SerpAPI](https://serpapi.com/) key for Google Shopping search:
+
+```bash
+# macOS/Linux (bash or zsh)
+export SERPAPI_KEY="your_serpapi_key"
+
+# Windows PowerShell
+setx SERPAPI_KEY "your_serpapi_key"
+
+```
+
 ## Backend Setup and Launch
 
 1. Navigate to the backend directory:
@@ -49,10 +62,19 @@ pip install -r requirements.txt
 ```bash
 PYTHONPATH=$PYTHONPATH:. python3 src/db/create_db.py
 ```
+In Windows:
+```
+$env:PYTHONPATH = "$env:PYTHONPATH;."; python src/db/create_db.py
+```
 
 5. Start the backend server:
 ```bash
 PYTHONPATH=$PYTHONPATH:. uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+In Windows:
+```bash
+$env:PYTHONPATH = "$env:PYTHONPATH;."; uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The backend API will be available at: http://localhost:8000
@@ -99,7 +121,7 @@ The frontend application will be available at: http://localhost:8501
    - Upload photos for skin analysis
    - Track lifestyle factors
    - View your dashboard
-   - Generate personalized skin plans
+   - Generate personalized skin plans with product recommendations
 
 ## Troubleshooting
 
@@ -107,9 +129,10 @@ If you encounter any issues:
 
 1. Make sure both backend and frontend servers are running
 2. Check that the Hugging Face token is properly set
-3. Verify that the database was initialized correctly
-4. Check the terminal output for any error messages
-5. Try restarting both servers if needed
+3. Check that the SerpAPI key is properly set for product recommendations
+4. Verify that the database was initialized correctly
+5. Check the terminal output for any error messages
+6. Try restarting both servers if needed
 
 ## API Endpoints
 
@@ -120,4 +143,4 @@ The backend provides the following main endpoints:
 - `POST /api/v1/timeseries/`: Save lifestyle data
 - `GET /api/v1/profile/{user_id}`: Get user profile
 - `POST /api/v1/profile/`: Save user profile
-- `POST /api/v1/skin-plan/generate`: Generate personalized skin plan
+- `POST /api/v1/skin-plan/generate`: Generate personalized skin plan with product recommendations

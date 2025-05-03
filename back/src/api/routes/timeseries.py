@@ -3,6 +3,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from src.api.core.exceptions import DatabaseError
 from src.db.create_db import get_latest_timeseries_data, create_timeseries_table
+from src.correlation.analyse_acne_corr import analyze_acne_data
 import sqlite3
 import os
 from pathlib import Path
@@ -20,17 +21,35 @@ def save_timeseries_data(entry: Dict) -> bool:
     Returns:
         bool: True if successful, False otherwise
     """
+    conn = None
     try:
+        # Get the absolute path to the database
         db_dir = Path(__file__).parent.parent.parent / "db"
+        db_dir.mkdir(parents=True, exist_ok=True)  # Create directory if it doesn't exist
         db_path = str(db_dir / "acne_tracker.db")
         
         # Ensure database and table exist
         create_timeseries_table(db_path)
         
-        conn = sqlite3.connect(db_path)
+        # Connect to SQLite with timeout
+        conn = sqlite3.connect(db_path, timeout=30)
         cursor = conn.cursor()
         
-        # Prepare the SQL query
+        # Add id if not present
+        if 'id' not in entry:
+            entry['id'] = str(uuid.uuid4())
+            
+        # Ensure timestamp is in ISO format
+        if 'timestamp' in entry:
+            try:
+                # Try to parse the timestamp and convert to ISO format
+                timestamp = datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00'))
+                entry['timestamp'] = timestamp.isoformat()
+            except ValueError:
+                # If parsing fails, use current time
+                entry['timestamp'] = datetime.now().isoformat()
+        
+        # Prepare the SQL query for INSERT (not UPDATE)
         columns = ', '.join(entry.keys())
         placeholders = ', '.join(['?' for _ in entry])
         query = f"INSERT INTO timeseries ({columns}) VALUES ({placeholders})"
@@ -38,12 +57,25 @@ def save_timeseries_data(entry: Dict) -> bool:
         # Execute the query
         cursor.execute(query, list(entry.values()))
         
+        # Commit changes
         conn.commit()
-        conn.close()
         return True
+        
+    except sqlite3.OperationalError as e:
+        print(f"Database operational error: {e}")
+        return False
+    except sqlite3.IntegrityError as e:
+        print(f"Database integrity error: {e}")
+        return False
     except Exception as e:
         print(f"Error saving timeseries data: {e}")
         return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception as e:
+                print(f"Error closing database connection: {e}")
 
 @router.get("/{user_id}")
 async def get_timeseries(user_id: str):
@@ -158,5 +190,36 @@ async def save_timeseries(entry: Dict):
             )
     except HTTPException:
         raise
+    except Exception as e:
+        raise DatabaseError(str(e))
+
+@router.get("/summary/{user_id}")
+async def get_summary(user_id: str):
+    """
+    Get a summary of acne severity trends and correlations for a specific user.
+    
+    Args:
+        user_id: The ID of the user to get the summary for
+        
+    Returns:
+        Dictionary containing:
+        - success: bool
+        - message: str
+        - summary: str
+        - correlations: dict
+    """
+    try:
+        db_dir = Path(__file__).parent.parent.parent / "db"
+        db_path = str(db_dir / "acne_tracker.db")
+        
+        # Get correlations and summary
+        correlations, summary = analyze_acne_data(db_path, user_id)
+        
+        return {
+            "success": True,
+            "message": "Summary generated successfully",
+            "summary": summary,
+            "correlations": correlations
+        }
     except Exception as e:
         raise DatabaseError(str(e)) 
