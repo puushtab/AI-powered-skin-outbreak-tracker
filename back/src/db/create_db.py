@@ -17,9 +17,6 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Drop existing table if it exists
-        cursor.execute("DROP TABLE IF EXISTS timeseries")
-        
         # Create timeseries table with optional fields
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS timeseries (
@@ -44,52 +41,18 @@ def create_timeseries_table(db_path="acne_tracker.db"):
         );
         """
         cursor.execute(create_table_sql)
-        
-        # Insert sample data
-        sample_data = [
-            (
-                str(uuid.uuid4()),
-                "test_user_1",
-                datetime.now().isoformat(),
-                75.0,
-                20.0,
-                15.0,
-                0.0,
-                7.0,
-                "good",
-                0,
-                0,
-                48.8566,
-                2.3522,
-                60.0,
-                30.0,
-                5.0,
-                "cleanser,moisturizer",
-                2.0
-            )
-        ]
-        
-        insert_sql = """
-        INSERT INTO timeseries (
-            id, user_id, timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
-            sleep_hours, sleep_quality, menstrual_cycle_active, menstrual_cycle_day,
-            latitude, longitude, humidity, pollution, stress, products_used, sunlight_exposure
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        
-        try:
-            cursor.executemany(insert_sql, sample_data)
-            conn.commit()
-            print(f"Inserted {len(sample_data)} rows into 'timeseries' table in '{db_path}'.")
-        except sqlite3.IntegrityError as e:
-            print(f"Warning: Integrity error while inserting sample data into 'timeseries': {e}")
+        conn.commit()
+        print(f"Created/verified 'timeseries' table in '{db_path}'.")
         
     except SQLiteError as e:
-        raise SQLiteError(f"Failed to create or modify 'timeseries' table in '{db_path}': {e}")
+        print(f"SQLite error while creating 'timeseries' table: {e}")
+        raise
     except PermissionError as e:
-        raise PermissionError(e)
+        print(f"Permission error while creating 'timeseries' table: {e}")
+        raise
     except Exception as e:
-        raise RuntimeError(f"Unexpected error while setting up 'timeseries' table: {e}")
+        print(f"Unexpected error while creating 'timeseries' table: {e}")
+        raise
     finally:
         if 'conn' in locals():
             conn.close()
