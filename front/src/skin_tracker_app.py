@@ -13,7 +13,7 @@ import time
 # --- Configuration ---
 st.set_page_config(page_title="AI-Powered Skin Outbreak Tracker", layout="wide")
 
-API_URL = "http://localhost:8000"
+API_URL = "http://localhost:8000/api/v1"
 USER_ID = "test_user_1"
 
 if 'pending_lifestyle_data' not in st.session_state:
