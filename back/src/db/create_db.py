@@ -3,6 +3,7 @@ from sqlite3 import Error as SQLiteError
 from datetime import datetime
 import uuid
 import os
+from typing import Optional, Dict
 
 def create_timeseries_table(db_path="acne_tracker.db"):
     """Create the timeseries table in the SQLite database."""
@@ -164,6 +165,74 @@ def setup_databases(timeseries_db_path="acne_tracker.db", profiles_db_path="user
         raise PermissionError(f"Permission error during database setup: {e}")
     except Exception as e:
         raise RuntimeError(f"Unexpected error during database setup: {e}")
+
+def get_latest_timeseries_data(user_id: str, db_path: str = "acne_tracker.db") -> Optional[Dict]:
+    """
+    Get the most recent timeseries data for a given user.
+    
+    Args:
+        user_id: The ID of the user to fetch data for
+        db_path: Path to the SQLite database file
+        
+    Returns:
+        Dictionary containing the latest timeseries data, or None if no data exists
+    """
+    try:
+        # Check if database file exists
+        if not os.path.exists(db_path):
+            raise FileNotFoundError(f"Database file '{db_path}' not found")
+        
+        # Connect to SQLite
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get the latest timeseries entry for the user
+        query = """
+        SELECT 
+            timestamp, acne_severity_score, diet_sugar, diet_dairy, diet_alcohol,
+            sleep_hours, sleep_quality, menstrual_cycle_active, menstrual_cycle_day,
+            latitude, longitude, humidity, pollution, stress, products_used, sunlight_exposure
+        FROM timeseries
+        WHERE id LIKE ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """
+        
+        cursor.execute(query, (f"{user_id}%",))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+            
+        # Convert row to dictionary
+        timeseries_data = {
+            "timestamp": row[0],
+            "acne_severity_score": row[1],
+            "diet_sugar": row[2],
+            "diet_dairy": row[3],
+            "diet_alcohol": row[4],
+            "sleep_hours": row[5],
+            "sleep_quality": row[6],
+            "menstrual_cycle_active": bool(row[7]),
+            "menstrual_cycle_day": row[8],
+            "latitude": row[9],
+            "longitude": row[10],
+            "humidity": row[11],
+            "pollution": row[12],
+            "stress": row[13],
+            "products_used": row[14],
+            "sunlight_exposure": row[15]
+        }
+        
+        return timeseries_data
+        
+    except SQLiteError as e:
+        raise SQLiteError(f"Failed to fetch timeseries data: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error while fetching timeseries data: {e}")
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 if __name__ == "__main__":
     try:

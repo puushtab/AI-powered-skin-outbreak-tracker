@@ -2,34 +2,50 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Optional
 from src.api.core.exceptions import AnalysisError
 from src.solutions.medllama import generate_skin_plan_from_json
+from src.db.user_profile_db import get_profile_from_db
+from src.db.create_db import get_latest_timeseries_data
 import json
+from datetime import datetime
+from pathlib import Path
 
 router = APIRouter(prefix="/skin-plan", tags=["skin-plan"])
 
 @router.post("/generate")
-async def generate_skin_plan(user_profile: Dict, timeseries_data: Optional[Dict] = None):
+async def generate_skin_plan(user_id: str, model_name: Optional[str] = "llama2"):
     """
     Generate a personalized skin treatment plan based on user profile and timeseries data.
     
     Args:
-        user_profile: Dictionary containing user profile information
-        timeseries_data: Optional dictionary containing timeseries data (not implemented yet)
+        user_id: The ID of the user to generate the plan for
+        model_name: Optional name of the Ollama model to use (defaults to llama2)
     
     Returns:
-        JSON response containing the generated skin plan
+        JSON response containing the generated skin plan with:
+        - treatment_plan: list of {date: str, treatment: str}
+        - lifestyle_advice: list of advice strings
+        - diet_recommendations: list of diet-specific recommendations
+        - sleep_recommendations: list of sleep-specific recommendations
+        - environmental_factors: list of environmental factor recommendations
     """
     try:
-        # For now, we'll only use the user profile data
-        # TODO: Incorporate timeseries_data when implemented
+        # Set up database paths
+        db_dir = Path(__file__).parent.parent.parent / "db"
+        timeseries_db_path = str(db_dir / "acne_tracker.db")
+        profiles_db_path = str(db_dir / "user_profiles.db")
+        
+        # Get user profile from database
+        user_profile = get_profile_from_db(user_id, db_path=profiles_db_path)
+        if not user_profile:
+            raise HTTPException(status_code=404, detail=f"User profile not found for ID: {user_id}")
+        
+        # Get latest timeseries data
+        timeseries_data = get_latest_timeseries_data(user_id, db_path=timeseries_db_path)
+        
+        # Prepare input data for the model
         input_data = {
-            "disease": "acne",  # Default for now, can be made dynamic later
-            "severity_score": 50,  # Default for now, can be made dynamic later
-            "sex": user_profile.get("gender", ""),
-            "age": 25,  # Default for now, can be calculated from DOB later
-            "weight": user_profile.get("weight", 70.0),
-            "previous_treatment": "",  # Default for now
-            "diet": "",  # Default for now
-            "actual_date": "2024-05-03"  # Default for now, can be made dynamic
+            "user_profile": user_profile,
+            "timeseries_data": timeseries_data,
+            "model_name": model_name
         }
         
         # Generate the skin plan
@@ -46,5 +62,7 @@ async def generate_skin_plan(user_profile: Dict, timeseries_data: Optional[Dict]
         
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Error parsing generated plan: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise AnalysisError(f"Error generating skin plan: {str(e)}") 
