@@ -12,7 +12,15 @@ AI-powered system that helps users better understand and manage their skin outbr
   <img src="https://github.com/user-attachments/assets/d1347ac5-e7bd-49a6-abfb-36b964207e36" width="600"/>
 </p>
 
+## Videos
+### Demo
+https://youtu.be/I9SixoyqEt4
+
+### Technical presentation
+https://www.youtube.com/watch?v=obyT800zN5g
+
 ## Description
+
 The AI-Powered Skin Outbreak Tracker helps users manage recurring skin issues like acne and dermatitis by identifying personalized triggers and patterns. Many struggle with skin conditions that affect confidence and well-being, often finding dermatology visits inaccessible or inconclusive. Our app offers a self-guided solution through AI and lifestyle tracking.
 
 Users upload face photos, and an AI YOLO model evaluates outbreak severity—measuring redness, inflammation, and affected area—to generate a severity score and heatmap. A daily quiz tracks lifestyle factors like diet, sleep, stress, sunlight, menstrual cycles, and product usage. These data form a time series, visualized to highlight correlations between flare-ups and habits.
@@ -20,13 +28,6 @@ Users upload face photos, and an AI YOLO model evaluates outbreak severity—mea
 A key feature is our integration of a small LLM (medllama2), which analyzes user data to provide tailored skincare suggestions—such as adjusting sleep routines or reducing dairy—and generates personalized treatment plans. A calming, skincare-themed design and mascot guides ensure an intuitive experience.
 
 By combining AI insights with accessible tracking tools, our app empowers users to take control of their skin health, bridging gaps in traditional dermatology and supporting broader digital health applications.
-
-## Videos
-### Demo
-https://youtu.be/I9SixoyqEt4
-
-### Technical presentation
-https://www.youtube.com/watch?v=obyT800zN5g
 
 ## Setup
 
