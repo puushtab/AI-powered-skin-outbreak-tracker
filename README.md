@@ -1,5 +1,5 @@
 # AI-powered-skin-outbreak-tracker
-AI-powered system that helps users better understand and manage their skin outbreaks.
+AI-powered system that helps users better understand and manage their skin outbreaks. (🏆 Creativity Award – MIT Global AI Hackathon)
 <p align="center">
   <img src="https://github.com/user-attachments/assets/e4d84191-ce27-471f-a208-8ab5a688653d" width="400"/>
 </p>
